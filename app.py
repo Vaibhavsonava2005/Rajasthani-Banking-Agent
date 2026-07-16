@@ -44,6 +44,8 @@ TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_CALLER_NUM  = os.getenv("TWILIO_CALLER_NUMBER", "")
 PUBLIC_BASE_URL    = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+if not PUBLIC_BASE_URL and os.getenv("VERCEL_URL"):
+    PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL')}"
 
 # Global state
 processed_data: list = []
@@ -228,9 +230,11 @@ class CallManager:
         return s not in ("idle",) and s not in self.TERMINAL_STATUSES
 
     # ── public API ───────────────────────────────────────────
-    def initiate_call(self, record_id: int, phone_number: str) -> dict:
+    def initiate_call(self, record_id: int, phone_number: str, hindi_text: str = "") -> dict:
         """Place an outbound call via Twilio and record initial state."""
-        twiml_url = f"{self.public_base_url}/twiml/{record_id}"
+        import urllib.parse
+        text_encoded = urllib.parse.quote(hindi_text)
+        twiml_url = f"{self.public_base_url}/twiml/{record_id}?t={text_encoded}"
         status_cb = f"{self.public_base_url}/call-status/{record_id}"
 
         call = self._client.calls.create(
@@ -736,11 +740,15 @@ def generate_speech(index: int):
 @app.route("/audio/<int:record_id>", methods=["GET"])
 def serve_audio(record_id: int):
     """Used by Twilio to stream audio during a voice call."""
-    if record_id < 0 or record_id >= len(processed_data):
-        return jsonify({"error": "Record not found"}), 404
+    hindi_text = request.args.get("t", "").strip()
 
-    record     = processed_data[record_id]
-    hindi_text = record.get("rajasthani_text", "")
+    # Fallback to memory if t is not provided (for direct browser playback)
+    if not hindi_text:
+        if record_id < 0 or record_id >= len(processed_data):
+            return jsonify({"error": "Record not found"}), 404
+        record = processed_data[record_id]
+        hindi_text = record.get("rajasthani_text", "")
+
     if not hindi_text:
         return jsonify({"error": "No text for this record"}), 400
 
@@ -800,7 +808,8 @@ def initiate_call(record_id: int):
         }), 409
 
     try:
-        result = cm.initiate_call(record_id, record["phone_number"])
+        hindi_text = record.get("rajasthani_text", "")
+        result = cm.initiate_call(record_id, record["phone_number"], hindi_text)
         return jsonify(result), 200
     except Exception as exc:
         logger.exception("Twilio call failed for record %d", record_id)
@@ -811,7 +820,12 @@ def initiate_call(record_id: int):
 @app.route("/twiml/<int:record_id>", methods=["GET"])
 def twiml(record_id: int):
     """Serve TwiML instructions to Twilio for the outbound call."""
-    audio_url = f"{PUBLIC_BASE_URL}/audio/{record_id}"
+    import urllib.parse
+    text = request.args.get("t", "")
+    text_encoded = urllib.parse.quote(text)
+    
+    # We pass the encoded text directly to the audio route
+    audio_url = f"{PUBLIC_BASE_URL}/audio/{record_id}?t={text_encoded}"
     xml_response = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         "<Response>\n"
@@ -900,7 +914,8 @@ def call_all():
                 break
             record = processed_data[idx]
             try:
-                cm.initiate_call(idx, record["phone_number"])
+                hindi_text = record.get("rajasthani_text", "")
+                cm.initiate_call(idx, record["phone_number"], hindi_text)
             except Exception as exc:
                 logger.error("Batch call failed for record %d: %s", idx, exc)
                 cm.update_status(idx, "failed")
