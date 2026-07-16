@@ -1,0 +1,1 @@
+param(); ='c:\Users\vaibh\OneDrive\Desktop\Rajasthani-Voice-Pro'; =[char]60; =[char]62; =[char]38; function T([string],[string]){ if(){ return +++++'/'++ } else { return ++++'/'++ } }; Write-Host 'Helper ok' 

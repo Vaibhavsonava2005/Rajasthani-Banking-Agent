@@ -1,0 +1,13 @@
+# Rajasthani Voice Pro — Git Ignore
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.log
+/audio_cache/
+*.mp3
