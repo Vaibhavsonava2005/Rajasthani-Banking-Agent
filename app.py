@@ -119,33 +119,40 @@ class AudioCache:
         return age < self.ttl_seconds
 
     def _generate(self, path: str, text: str) -> None:
-        """Synthesise TTS using Deepgram Aura and save to *path*."""
+        """Synthesise TTS using Google Cloud TTS and save to *path*."""
         tmp_path = path + ".tmp"
         try:
-            deepgram_api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
-            if not deepgram_api_key:
-                logger.warning("No Deepgram API key provided. Audio generation will fail.")
+            google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+            if not google_api_key:
+                logger.warning("No Google API key provided. Audio generation will fail.")
                 
-            headers = {
-                "Authorization": f"Token {deepgram_api_key}",
-                "Content-Type": "application/json"
+            url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={google_api_key}"
+            headers = {"Content-Type": "application/json"}
+            
+            payload = {
+                "input": {"text": text},
+                "voice": {
+                    "languageCode": "hi-IN",
+                    "name": "hi-IN-Neural2-A"
+                },
+                "audioConfig": {
+                    "audioEncoding": "MP3"
+                }
             }
             
-            # Use aura-asteria-en voice (Deepgram's premium English female voice).
-            # Note: Deepgram Aura is primarily English, but we will pass the Hindi/Rajasthani text
-            url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en"
-            payload = {"text": text}
-            
-            resp = requests.post(url, headers=headers, json=payload, stream=True)
+            resp = requests.post(url, headers=headers, json=payload)
             resp.raise_for_status()
             
+            import base64
+            audio_content = resp.json().get("audioContent", "")
+            if not audio_content:
+                raise ValueError("No audioContent returned by Google TTS")
+                
             with open(tmp_path, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=1024):
-                    if chunk:
-                        f.write(chunk)
+                f.write(base64.b64decode(audio_content))
                         
             os.replace(tmp_path, path)
-            logger.info("Generated Deepgram audio: %s", path)
+            logger.info("Generated Google Cloud TTS audio: %s", path)
         except Exception:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
