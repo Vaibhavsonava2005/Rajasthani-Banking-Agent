@@ -565,47 +565,37 @@ _cm_errors = []
 def _build_call_manager():
     missing  = []
     errors   = []
-    provider = os.getenv("TELEPHONY_PROVIDER", "twilio").strip().lower()
     
-    exotel_api_key = ""
-    exotel_subdomain = "api.exotel.com"
-    
-    # Plivo uses PLIVO_AUTH_ID, Twilio uses TWILIO_ACCOUNT_SID. Map them dynamically.
-    if provider == "plivo":
-        sid    = os.getenv("PLIVO_AUTH_ID", "").strip()
-        token  = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
-        caller = os.getenv("PLIVO_PHONE_NUMBER", "").strip()
-    elif provider == "exotel":
-        sid    = os.getenv("EXOTEL_ACCOUNT_SID", "").strip()
-        token  = os.getenv("EXOTEL_API_TOKEN", "").strip()
-        caller = os.getenv("EXOTEL_PHONE_NUMBER", "").strip()
-        exotel_api_key = os.getenv("EXOTEL_API_KEY", "").strip()
-        exotel_subdomain = os.getenv("EXOTEL_SUBDOMAIN", "api.exotel.com").strip()
-    else:
-        sid    = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-        token  = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-        caller = os.getenv("TWILIO_CALLER_NUMBER", "").strip()
-        
+    sid    = os.getenv("EXOTEL_ACCOUNT_SID", "").strip()
+    token  = os.getenv("EXOTEL_API_TOKEN", "").strip()
+    caller = os.getenv("EXOTEL_PHONE_NUMBER", "").strip()
+    api_key = os.getenv("EXOTEL_API_KEY", "").strip()
+    subdomain = os.getenv("EXOTEL_SUBDOMAIN", "api.exotel.com").strip()
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
-    if not sid:      missing.append(f"{provider.upper()}_ACCOUNT_SID/ID")
-    if not token:    missing.append(f"{provider.upper()}_AUTH_TOKEN")
-    if not caller:   missing.append(f"{provider.upper()}_PHONE_NUMBER")
-    
-    if provider == "exotel" and not exotel_api_key:
-        missing.append("EXOTEL_API_KEY")
+    if not sid:      missing.append("EXOTEL_ACCOUNT_SID")
+    if not token:    missing.append("EXOTEL_API_TOKEN")
+    if not caller:   missing.append("EXOTEL_PHONE_NUMBER")
+    if not api_key:  missing.append("EXOTEL_API_KEY")
     if not base_url: missing.append("PUBLIC_BASE_URL")
 
     if missing:
-        return None, missing
+        errors.append(f"Missing Exotel credentials: {', '.join(missing)}")
+        return None, errors
 
     try:
-        mgr = CallManager(sid, token, caller, base_url, provider=provider)
+        mgr = CallManager(
+            account_sid=sid,
+            auth_token=token,
+            caller_number=caller,
+            public_base_url=base_url,
+            exotel_api_key=api_key,
+            exotel_subdomain=subdomain
+        )
         return mgr, []
     except Exception as exc:
-        errors.append(str(exc))
-        logger.error("CallManager init failed: %s", exc)
-        return None, errors
+        logger.exception("Failed to build CallManager for Exotel")
+        return None, [str(exc)]
 
 
 cm, _cm_errors = _build_call_manager()
