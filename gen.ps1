@@ -1,1 +1,0 @@
- = Get-Content 'c:\Users\vaibh\OneDrive\Desktop\Rajasthani-Voice-Pro\html_src.txt' -Raw; [System.IO.File]::WriteAllText('c:\Users\vaibh\OneDrive\Desktop\Rajasthani-Voice-Pro\templates\index.html', , [System.Text.Encoding]::UTF8); Write-Host 'HTML done'

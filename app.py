@@ -43,9 +43,10 @@ app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
 TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
 TWILIO_CALLER_NUM  = os.getenv("TWILIO_CALLER_NUMBER", "")
-PUBLIC_BASE_URL    = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-if not PUBLIC_BASE_URL and os.getenv("VERCEL_URL"):
-    PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL')}"
+if os.getenv("VERCEL_URL"):
+    PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL').strip()}"
+else:
+    PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "").strip().rstrip("/")
 
 # Global state
 processed_data: list = []
@@ -203,16 +204,20 @@ class CallManager:
         auth_token: str,
         caller_number: str,
         public_base_url: str,
+        exotel_api_key: str,
+        exotel_subdomain: str = "api.exotel.com"
     ):
-        from twilio.rest import Client  # lazy import so startup never crashes
-
+        self.account_sid     = account_sid
+        self.auth_token      = auth_token
         self.caller_number   = caller_number
         self.public_base_url = public_base_url.rstrip("/")
-        self._client         = Client(account_sid, auth_token)
+        self.exotel_api_key   = exotel_api_key
+        self.exotel_subdomain = exotel_subdomain
+        
         self._state: dict = {}
         self._lock = threading.Lock()
         logger.info(
-            "CallManager ready (caller=%s, base_url=%s)",
+            "CallManager ready (Exotel, caller=%s, base_url=%s)",
             caller_number, public_base_url,
         )
 
@@ -231,31 +236,40 @@ class CallManager:
 
     # ── public API ───────────────────────────────────────────
     def initiate_call(self, record_id: int, phone_number: str, hindi_text: str = "") -> dict:
-        """Place an outbound call via Twilio and record initial state."""
-        import urllib.parse
-        text_encoded = urllib.parse.quote(hindi_text)
-        twiml_url = f"{self.public_base_url}/twiml/{record_id}?t={text_encoded}"
-        status_cb = f"{self.public_base_url}/call-status/{record_id}"
-
-        call = self._client.calls.create(
-            to=phone_number,
-            from_=self.caller_number,
-            url=twiml_url,
-            status_callback=status_cb,
-            status_callback_event=["initiated", "ringing", "answered", "completed"],
-            status_callback_method="POST",
-        )
+        """Place an outbound call via Exotel and record initial state."""
+        import base64
+        import requests
+        
+        b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
+        
+        # Exotel uses api_key:api_token for auth
+        auth = (self.exotel_api_key, self.auth_token)
+        url = f"https://{self.exotel_subdomain}/v1/Accounts/{self.account_sid}/Calls/connect.json"
+        
+        # Exotel webhook (must return text/plain)
+        answer_url = f"{self.public_base_url}/exotelxml/{record_id}?b64={b64_text}"
+        
+        payload = {
+            "From": self.caller_number,
+            "To": phone_number,
+            "CallerId": self.caller_number,
+            "Url": answer_url,
+            "CustomField": str(record_id)
+        }
+        resp = requests.post(url, data=payload, auth=auth)
+        resp.raise_for_status()
+        call_sid = resp.json().get("Call", {}).get("Sid", f"exotel_{record_id}")
 
         with self._lock:
             self._state[record_id] = {
                 "record_id":  record_id,
                 "status":     "initiated",
-                "call_sid":   call.sid,
+                "call_sid":   call_sid,
                 "updated_at": time.time(),
             }
 
-        logger.info("Call initiated – record=%d SID=%s", record_id, call.sid)
-        return {"call_sid": call.sid, "status": "initiated"}
+        logger.info("Call initiated via Exotel – record=%d SID=%s", record_id, call_sid)
+        return {"call_sid": call_sid, "status": "initiated"}
 
     def update_status(
         self, record_id: int, status: str, call_sid: str = None
@@ -551,21 +565,42 @@ _cm_errors = []
 def _build_call_manager():
     missing  = []
     errors   = []
-    sid      = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    token    = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    caller   = os.getenv("TWILIO_CALLER_NUMBER", "").strip()
+    provider = os.getenv("TELEPHONY_PROVIDER", "twilio").strip().lower()
+    
+    exotel_api_key = ""
+    exotel_subdomain = "api.exotel.com"
+    
+    # Plivo uses PLIVO_AUTH_ID, Twilio uses TWILIO_ACCOUNT_SID. Map them dynamically.
+    if provider == "plivo":
+        sid    = os.getenv("PLIVO_AUTH_ID", "").strip()
+        token  = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
+        caller = os.getenv("PLIVO_PHONE_NUMBER", "").strip()
+    elif provider == "exotel":
+        sid    = os.getenv("EXOTEL_ACCOUNT_SID", "").strip()
+        token  = os.getenv("EXOTEL_API_TOKEN", "").strip()
+        caller = os.getenv("EXOTEL_PHONE_NUMBER", "").strip()
+        exotel_api_key = os.getenv("EXOTEL_API_KEY", "").strip()
+        exotel_subdomain = os.getenv("EXOTEL_SUBDOMAIN", "api.exotel.com").strip()
+    else:
+        sid    = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+        token  = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+        caller = os.getenv("TWILIO_CALLER_NUMBER", "").strip()
+        
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
-    if not sid:      missing.append("TWILIO_ACCOUNT_SID")
-    if not token:    missing.append("TWILIO_AUTH_TOKEN")
-    if not caller:   missing.append("TWILIO_CALLER_NUMBER")
+    if not sid:      missing.append(f"{provider.upper()}_ACCOUNT_SID/ID")
+    if not token:    missing.append(f"{provider.upper()}_AUTH_TOKEN")
+    if not caller:   missing.append(f"{provider.upper()}_PHONE_NUMBER")
+    
+    if provider == "exotel" and not exotel_api_key:
+        missing.append("EXOTEL_API_KEY")
     if not base_url: missing.append("PUBLIC_BASE_URL")
 
     if missing:
         return None, missing
 
     try:
-        mgr = CallManager(sid, token, caller, base_url)
+        mgr = CallManager(sid, token, caller, base_url, provider=provider)
         return mgr, []
     except Exception as exc:
         errors.append(str(exc))
@@ -736,11 +771,19 @@ def generate_speech(index: int):
 
 
 
-# ── GET /audio/<record_id> ───────────────────────────────────
-@app.route("/audio/<int:record_id>", methods=["GET"])
+# ── GET/POST /audio/<record_id> ───────────────────────────────────
+@app.route("/audio/<int:record_id>", methods=["GET", "POST"])
 def serve_audio(record_id: int):
     """Used by Twilio to stream audio during a voice call."""
-    hindi_text = request.args.get("t", "").strip()
+    import base64
+    b64_text = request.args.get("b64", "").strip()
+    if b64_text:
+        try:
+            hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
+        except Exception:
+            hindi_text = request.args.get("t", "").strip()
+    else:
+        hindi_text = request.args.get("t", "").strip()
 
     # Fallback to memory if t is not provided (for direct browser playback)
     if not hindi_text:
@@ -763,17 +806,18 @@ def serve_audio(record_id: int):
 # ── GET /call-config-status ──────────────────────────────────
 @app.route("/call-config-status", methods=["GET"])
 def call_config_status():
-    """Return Twilio configuration health-check."""
+    """Return Exotel configuration health-check."""
     missing = list(_cm_errors) if _cm_errors and all(
-        e in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
-               "TWILIO_CALLER_NUMBER", "PUBLIC_BASE_URL"] for e in _cm_errors
+        e in ["EXOTEL_ACCOUNT_SID", "EXOTEL_API_TOKEN",
+               "EXOTEL_PHONE_NUMBER", "EXOTEL_API_KEY", "PUBLIC_BASE_URL"] for e in _cm_errors
     ) else []
 
     # Always re-check live env
     live_missing = []
-    if not os.getenv("TWILIO_ACCOUNT_SID", "").strip():  live_missing.append("TWILIO_ACCOUNT_SID")
-    if not os.getenv("TWILIO_AUTH_TOKEN", "").strip():   live_missing.append("TWILIO_AUTH_TOKEN")
-    if not os.getenv("TWILIO_CALLER_NUMBER", "").strip(): live_missing.append("TWILIO_CALLER_NUMBER")
+    if not os.getenv("EXOTEL_ACCOUNT_SID", "").strip():  live_missing.append("EXOTEL_ACCOUNT_SID")
+    if not os.getenv("EXOTEL_API_TOKEN", "").strip():    live_missing.append("EXOTEL_API_TOKEN")
+    if not os.getenv("EXOTEL_PHONE_NUMBER", "").strip(): live_missing.append("EXOTEL_PHONE_NUMBER")
+    if not os.getenv("EXOTEL_API_KEY", "").strip():      live_missing.append("EXOTEL_API_KEY")
     if not os.getenv("PUBLIC_BASE_URL", "").strip():     live_missing.append("PUBLIC_BASE_URL")
 
     return jsonify({
@@ -787,8 +831,8 @@ def call_config_status():
 @app.route("/call/<int:record_id>", methods=["POST"])
 def initiate_call(record_id: int):
     if cm is None:
-        missing = _cm_errors if _cm_errors else ["Twilio credentials not configured"]
-        return jsonify({"error": "Twilio not configured", "missing": missing}), 503
+        missing = _cm_errors if _cm_errors else ["Exotel credentials not configured"]
+        return jsonify({"error": "Exotel not configured", "missing": missing}), 503
 
     if record_id < 0 or record_id >= len(processed_data):
         return jsonify({"error": f"Record {record_id} not found"}), 404
@@ -812,28 +856,31 @@ def initiate_call(record_id: int):
         result = cm.initiate_call(record_id, record["phone_number"], hindi_text)
         return jsonify(result), 200
     except Exception as exc:
-        logger.exception("Twilio call failed for record %d", record_id)
-        return jsonify({"error": f"Twilio API error: {exc}"}), 502
+        logger.exception("Exotel call failed for record %d", record_id)
+        return jsonify({"error": f"Exotel API error: {exc}"}), 502
 
 
-# ── GET /twiml/<record_id> ───────────────────────────────────
-@app.route("/twiml/<int:record_id>", methods=["GET"])
-def twiml(record_id: int):
-    """Serve TwiML instructions to Twilio for the outbound call."""
-    import urllib.parse
-    text = request.args.get("t", "")
-    text_encoded = urllib.parse.quote(text)
+
+
+# ── GET/HEAD/POST /exotelxml/<record_id> ───────────────────────────────────
+@app.route("/exotelxml/<int:record_id>", methods=["GET", "POST", "HEAD"])
+def exotelxml(record_id: int):
+    """Serve Exotel plain text instructions for the outbound call TTS."""
+    import base64
+    b64_text = request.args.get("b64", "").strip()
     
-    # We pass the encoded text directly to the audio route
-    audio_url = f"{PUBLIC_BASE_URL}/audio/{record_id}?t={text_encoded}"
-    xml_response = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        "<Response>\n"
-        '  <Pause length="1"/>\n'
-        f'  <Play loop="2">{audio_url}</Play>\n'
-        "</Response>"
-    )
-    return Response(xml_response, status=200, mimetype="application/xml")
+    hindi_text = ""
+    if b64_text:
+        try:
+            hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
+        except Exception:
+            pass
+            
+    if not hindi_text:
+        hindi_text = "नमस्ते। यह एक टेस्ट कॉल है।"
+        
+    # Exotel requires Content-Type: text/plain and ONLY the text in the body
+    return Response(hindi_text, status=200, mimetype="text/plain")
 
 
 
@@ -882,7 +929,7 @@ def call_all():
     global cancel_batch_flag, batch_state
 
     if cm is None:
-        return jsonify({"error": "Twilio not configured"}), 503
+        return jsonify({"error": "Exotel not configured"}), 503
     if not processed_data:
         return jsonify({"error": "No data uploaded"}), 400
 

@@ -11,3 +11,5 @@ Thumbs.db
 *.log
 /audio_cache/
 *.mp3
+
+.vercel
