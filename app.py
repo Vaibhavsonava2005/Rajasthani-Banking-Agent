@@ -119,40 +119,27 @@ class AudioCache:
         return age < self.ttl_seconds
 
     def _generate(self, path: str, text: str) -> None:
-        """Synthesise TTS using Google Cloud TTS and save to *path*."""
+        """Synthesise TTS using free Edge TTS Neural voices and save to *path*."""
+        import asyncio
+        import edge_tts
+        
         tmp_path = path + ".tmp"
         try:
-            google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-            if not google_api_key:
-                logger.warning("No Google API key provided. Audio generation will fail.")
+            # We use the premium hi-IN-SwaraNeural female voice
+            # or hi-IN-MadhurNeural male voice.
+            voice = "hi-IN-SwaraNeural"
+            
+            async def _do_tts():
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(tmp_path)
                 
-            url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={google_api_key}"
-            headers = {"Content-Type": "application/json"}
+            asyncio.run(_do_tts())
             
-            payload = {
-                "input": {"text": text},
-                "voice": {
-                    "languageCode": "hi-IN",
-                    "name": "hi-IN-Neural2-A"
-                },
-                "audioConfig": {
-                    "audioEncoding": "MP3"
-                }
-            }
-            
-            resp = requests.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
-            
-            import base64
-            audio_content = resp.json().get("audioContent", "")
-            if not audio_content:
-                raise ValueError("No audioContent returned by Google TTS")
-                
-            with open(tmp_path, "wb") as f:
-                f.write(base64.b64decode(audio_content))
+            if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
+                raise ValueError("Edge TTS failed to generate an audio file.")
                         
             os.replace(tmp_path, path)
-            logger.info("Generated Google Cloud TTS audio: %s", path)
+            logger.info("Generated Edge TTS audio: %s", path)
         except Exception:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
