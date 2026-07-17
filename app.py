@@ -17,7 +17,7 @@ import uuid
 
 import pandas as pd
 from flask import Flask, render_template, send_file, jsonify, Response, request
-from gtts import gTTS
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables from .env file first
@@ -119,13 +119,33 @@ class AudioCache:
         return age < self.ttl_seconds
 
     def _generate(self, path: str, text: str) -> None:
-        """Synthesise Hindi TTS and save to *path* (atomic write)."""
+        """Synthesise TTS using Deepgram Aura and save to *path*."""
         tmp_path = path + ".tmp"
         try:
-            tts = gTTS(text=text, lang="hi", slow=False)
-            tts.save(tmp_path)
+            deepgram_api_key = os.getenv("DEEPGRAM_API_KEY", "").strip()
+            if not deepgram_api_key:
+                logger.warning("No Deepgram API key provided. Audio generation will fail.")
+                
+            headers = {
+                "Authorization": f"Token {deepgram_api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            # Use aura-asteria-en voice (Deepgram's premium English female voice).
+            # Note: Deepgram Aura is primarily English, but we will pass the Hindi/Rajasthani text
+            url = "https://api.deepgram.com/v1/speak?model=aura-asteria-en"
+            payload = {"text": text}
+            
+            resp = requests.post(url, headers=headers, json=payload, stream=True)
+            resp.raise_for_status()
+            
+            with open(tmp_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1024):
+                    if chunk:
+                        f.write(chunk)
+                        
             os.replace(tmp_path, path)
-            logger.info("Generated audio: %s", path)
+            logger.info("Generated Deepgram audio: %s", path)
         except Exception:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -246,8 +266,8 @@ class CallManager:
         auth = (self.exotel_api_key, self.auth_token)
         url = f"https://{self.exotel_subdomain}/v1/Accounts/{self.account_sid}/Calls/connect.json"
         
-        # Exotel webhook (must return text/plain)
-        answer_url = f"{self.public_base_url}/exotelxml/{record_id}?b64={b64_text}"
+        # Exotel webhook (Return direct MP3 URL from Deepgram cache)
+        answer_url = f"{self.public_base_url}/audio/{record_id}?b64={b64_text}"
         
         payload = {
             "From": self.caller_number,
@@ -851,26 +871,6 @@ def initiate_call(record_id: int):
 
 
 
-
-# ── GET/HEAD/POST /exotelxml/<record_id> ───────────────────────────────────
-@app.route("/exotelxml/<int:record_id>", methods=["GET", "POST", "HEAD"])
-def exotelxml(record_id: int):
-    """Serve Exotel plain text instructions for the outbound call TTS."""
-    import base64
-    b64_text = request.args.get("b64", "").strip()
-    
-    hindi_text = ""
-    if b64_text:
-        try:
-            hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
-        except Exception:
-            pass
-            
-    if not hindi_text:
-        hindi_text = "नमस्ते। यह एक टेस्ट कॉल है।"
-        
-    # Exotel requires Content-Type: text/plain and ONLY the text in the body
-    return Response(hindi_text, status=200, mimetype="text/plain")
 
 
 
