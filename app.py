@@ -119,27 +119,40 @@ class AudioCache:
         return age < self.ttl_seconds
 
     def _generate(self, path: str, text: str) -> None:
-        """Synthesise TTS using free Edge TTS Neural voices and save to *path*."""
-        import asyncio
-        import edge_tts
-        
+        """Synthesise TTS using Google Cloud TTS and save to *path*."""
         tmp_path = path + ".tmp"
         try:
-            # We use the premium hi-IN-SwaraNeural female voice
-            # or hi-IN-MadhurNeural male voice.
-            voice = "hi-IN-SwaraNeural"
-            
-            async def _do_tts():
-                communicate = edge_tts.Communicate(text, voice)
-                await communicate.save(tmp_path)
+            google_api_key = os.getenv("GOOGLE_API_KEY", "").strip()
+            if not google_api_key:
+                logger.warning("No Google API key provided. Audio generation will fail.")
                 
-            asyncio.run(_do_tts())
+            url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={google_api_key}"
+            headers = {"Content-Type": "application/json"}
             
-            if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
-                raise ValueError("Edge TTS failed to generate an audio file.")
+            payload = {
+                "input": {"text": text},
+                "voice": {
+                    "languageCode": "hi-IN",
+                    "name": "hi-IN-Neural2-A"
+                },
+                "audioConfig": {
+                    "audioEncoding": "MP3"
+                }
+            }
+            
+            resp = requests.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+            
+            import base64
+            audio_content = resp.json().get("audioContent", "")
+            if not audio_content:
+                raise ValueError("No audioContent returned by Google TTS")
+                
+            with open(tmp_path, "wb") as f:
+                f.write(base64.b64decode(audio_content))
                         
             os.replace(tmp_path, path)
-            logger.info("Generated Edge TTS audio: %s", path)
+            logger.info("Generated Google Cloud TTS audio: %s", path)
         except Exception:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -214,24 +227,20 @@ class CallManager:
 
     def __init__(
         self,
-        account_sid: str,
+        auth_id: str,
         auth_token: str,
         caller_number: str,
-        public_base_url: str,
-        exotel_api_key: str,
-        exotel_subdomain: str = "api.exotel.com"
+        public_base_url: str
     ):
-        self.account_sid     = account_sid
-        self.auth_token      = auth_token
-        self.caller_number   = caller_number
+        self.auth_id = auth_id
+        self.auth_token = auth_token
+        self.caller_number = caller_number
         self.public_base_url = public_base_url.rstrip("/")
-        self.exotel_api_key   = exotel_api_key
-        self.exotel_subdomain = exotel_subdomain
         
         self._state: dict = {}
         self._lock = threading.Lock()
         logger.info(
-            "CallManager ready (Exotel, caller=%s, base_url=%s)",
+            "CallManager ready (Plivo, caller=%s, base_url=%s)",
             caller_number, public_base_url,
         )
 
@@ -250,29 +259,38 @@ class CallManager:
 
     # ── public API ───────────────────────────────────────────
     def initiate_call(self, record_id: int, phone_number: str, hindi_text: str = "") -> dict:
-        """Place an outbound call via Exotel and record initial state."""
+        """Place an outbound call via Plivo and record initial state."""
         import base64
         import requests
         
         b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
+        auth = (self.auth_id, self.auth_token)
+        url = f"https://api.plivo.com/v1/Account/{self.auth_id}/Call/"
         
-        # Exotel uses api_key:api_token for auth
-        auth = (self.exotel_api_key, self.auth_token)
-        url = f"https://{self.exotel_subdomain}/v1/Accounts/{self.account_sid}/Calls/connect.json"
+        answer_url = f"{self.public_base_url}/plivoxml/{record_id}?b64={b64_text}"
         
-        # Exotel webhook (Return direct MP3 URL from Deepgram cache)
-        answer_url = f"{self.public_base_url}/audio/{record_id}?b64={b64_text}"
-        
+        # Plivo requires country code
+        if phone_number.startswith("+"):
+            formatted_to = phone_number[1:]
+        elif len(phone_number) == 10:
+            formatted_to = "91" + phone_number
+        else:
+            formatted_to = phone_number
+            
         payload = {
-            "From": self.caller_number,
-            "To": phone_number,
-            "CallerId": self.caller_number,
-            "Url": answer_url,
-            "CustomField": str(record_id)
+            "from": self.caller_number,
+            "to": formatted_to,
+            "answer_url": answer_url,
+            "answer_method": "GET"
         }
-        resp = requests.post(url, data=payload, auth=auth)
-        resp.raise_for_status()
-        call_sid = resp.json().get("Call", {}).get("Sid", f"exotel_{record_id}")
+        
+        resp = requests.post(url, json=payload, auth=auth)
+        
+        if resp.status_code not in (200, 201):
+            logger.error("Plivo API error: %s - %s", resp.status_code, resp.text)
+            resp.raise_for_status()
+            
+        call_sid = resp.json().get("request_uuid", f"plivo_{record_id}")
 
         with self._lock:
             self._state[record_id] = {
@@ -282,7 +300,7 @@ class CallManager:
                 "updated_at": time.time(),
             }
 
-        logger.info("Call initiated via Exotel – record=%d SID=%s", record_id, call_sid)
+        logger.info("Call initiated via Plivo – record=%d SID=%s", record_id, call_sid)
         return {"call_sid": call_sid, "status": "initiated"}
 
     def update_status(
@@ -580,35 +598,30 @@ def _build_call_manager():
     missing  = []
     errors   = []
     
-    sid    = os.getenv("EXOTEL_ACCOUNT_SID", "").strip()
-    token  = os.getenv("EXOTEL_API_TOKEN", "").strip()
-    caller = os.getenv("EXOTEL_PHONE_NUMBER", "").strip()
-    api_key = os.getenv("EXOTEL_API_KEY", "").strip()
-    subdomain = os.getenv("EXOTEL_SUBDOMAIN", "api.exotel.com").strip()
+    auth_id = os.getenv("PLIVO_AUTH_ID", "").strip()
+    auth_token = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
+    caller = os.getenv("PLIVO_PHONE_NUMBER", "").strip()
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
-    if not sid:      missing.append("EXOTEL_ACCOUNT_SID")
-    if not token:    missing.append("EXOTEL_API_TOKEN")
-    if not caller:   missing.append("EXOTEL_PHONE_NUMBER")
-    if not api_key:  missing.append("EXOTEL_API_KEY")
-    if not base_url: missing.append("PUBLIC_BASE_URL")
+    if not auth_id:    missing.append("PLIVO_AUTH_ID")
+    if not auth_token: missing.append("PLIVO_AUTH_TOKEN")
+    if not caller:     missing.append("PLIVO_PHONE_NUMBER")
+    if not base_url:   missing.append("PUBLIC_BASE_URL")
 
     if missing:
-        errors.append(f"Missing Exotel credentials: {', '.join(missing)}")
+        errors.append(f"Missing Plivo credentials: {', '.join(missing)}")
         return None, errors
 
     try:
         mgr = CallManager(
-            account_sid=sid,
-            auth_token=token,
+            auth_id=auth_id,
+            auth_token=auth_token,
             caller_number=caller,
-            public_base_url=base_url,
-            exotel_api_key=api_key,
-            exotel_subdomain=subdomain
+            public_base_url=base_url
         )
         return mgr, []
     except Exception as exc:
-        logger.exception("Failed to build CallManager for Exotel")
+        logger.exception("Failed to build CallManager for Plivo")
         return None, [str(exc)]
 
 
@@ -638,6 +651,18 @@ logger.info("Background cleanup thread started")
 @app.route("/", methods=["GET"])
 def index():
     return render_template("index.html")
+
+@app.route("/plivoxml/<int:record_id>", methods=["GET", "POST"])
+def plivo_xml(record_id):
+    b64_text = request.args.get("b64", "")
+    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    audio_url = f"{base_url}/audio/{record_id}?b64={b64_text}"
+    
+    xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Play>{audio_url}</Play>
+</Response>"""
+    return Response(xml_response, mimetype="application/xml")
 
 # ── POST /upload ─────────────────────────────────────────────
 @app.route("/upload", methods=["POST"])
