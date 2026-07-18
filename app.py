@@ -126,7 +126,7 @@ class CallManager:
         )
 
     # ── public API ───────────────────────────────────────────
-    def initiate_call(self, phone_number: str, hindi_text: str = "") -> dict:
+    def initiate_call(self, phone_number: str, hindi_text: str = "", base_url: str = None) -> dict:
         """Place an outbound call via Twilio."""
         import base64
         import urllib.parse
@@ -136,7 +136,8 @@ class CallManager:
         b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
         
         # Twilio webhook (Return TwiML with native Hindi TTS)
-        answer_url = f"{self.public_base_url}/twiml?b64={b64_text}"
+        actual_base_url = (base_url or self.public_base_url).rstrip("/")
+        answer_url = f"{actual_base_url}/twiml?b64={b64_text}"
         
         # Twilio requires E.164 format
         if not phone_number.startswith("+"):
@@ -485,7 +486,7 @@ def twilio_twiml():
     import urllib.parse
     b64_text = request.args.get("b64", "")
     
-    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    base_url = request.host_url.rstrip("/")
     audio_url = f"{base_url}/audio?b64={urllib.parse.quote(b64_text)}"
     
     # Use Twilio's Play tag to fetch the Sarvam AI audio statelessly
@@ -526,7 +527,9 @@ def serve_audio():
             model="bulbul:v3",
             text=hindi_text,
             target_language_code="hi-IN",
-            speaker="shubh",
+            speaker="ritu",
+            pace=1.0,
+            speech_sample_rate=22050,
         )
         
         # response is an object with base64 encoded 'audios' array
@@ -704,7 +707,8 @@ def initiate_call():
         return jsonify({"error": "Missing phone_number in request"}), 400
 
     try:
-        result = cm.initiate_call(phone_number, hindi_text)
+        # Use request.host_url so Vercel uses the vercel domain and local uses ngrok
+        result = cm.initiate_call(phone_number, hindi_text, base_url=request.host_url)
         return jsonify(result), 200
     except Exception as exc:
         logger.exception("Twilio call failed to %s", phone_number)
