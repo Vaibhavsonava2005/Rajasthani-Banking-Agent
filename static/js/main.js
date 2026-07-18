@@ -168,10 +168,11 @@ document.addEventListener('DOMContentLoaded', () => {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
-  /* ── Play Audio ───────────────────────────────────────────── */
+  /* ── Play Audio (Sarvam AI API) ───────────────────────────── */
   window.playAudio = async (idx) => {
     const btn  = document.getElementById(`playBtn-${idx}`);
     const icon = document.getElementById(`playIcon-${idx}`);
+    const rec  = processedData[idx];
 
     // If already playing this record, pause
     if (currentAudio && currentPlayIdx === idx) {
@@ -194,13 +195,26 @@ document.addEventListener('DOMContentLoaded', () => {
         if (prevIcon) prevIcon.className = 'fa-solid fa-play';
       }
     }
+    
+    if (!rec || !rec.rajasthani_text) {
+      showToast('No text available to play', 'error');
+      return;
+    }
 
     btn.disabled = true;
     icon.className = 'fa-solid fa-spinner fa-spin';
 
     try {
-      const res = await fetch(`/audio/${idx}`);
-      if (!res.ok) throw new Error('Audio generation failed');
+      // Base64 encode the text for the URL
+      // Use standard btoa with utf-8 encoding trick
+      const b64_text = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
+      
+      const res = await fetch(`/audio?b64=${encodeURIComponent(b64_text)}`);
+      if (!res.ok) {
+          const json = await res.json();
+          throw new Error(json.error || 'Audio generation failed');
+      }
+      
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
 
@@ -238,11 +252,21 @@ document.addEventListener('DOMContentLoaded', () => {
     setBadge(badge, 'initiated');
 
     try {
-      const res  = await fetch(`/call/${idx}`, { method: 'POST' });
+      const rec = processedData[idx];
+      const res = await fetch(`/call`, { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone_number: rec.phone_number,
+          rajasthani_text: rec.rajasthani_text
+        })
+      });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Call failed');
 
-      showToast(`📞 Calling ${processedData[idx].name}...`, 'info');
+      // Store the Twilio Call SID for status polling
+      processedData[idx].call_sid = json.call_sid;
+      showToast(`📞 Calling ${rec.name}...`, 'info');
       startPolling(idx);
     } catch (err) {
       setBadge(badge, 'failed');
@@ -252,24 +276,37 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   /* ── Polling ──────────────────────────────────────────────── */
-  const TERMINAL = new Set(['completed', 'failed', 'busy', 'no-answer']);
+  const TERMINAL = new Set(['completed', 'failed', 'busy', 'no-answer', 'canceled']);
 
   function startPolling(idx) {
     if (pollIntervals[idx]) clearInterval(pollIntervals[idx]);
+    
+    const sid = processedData[idx].call_sid;
+    if (!sid) return;
+
     pollIntervals[idx] = setInterval(async () => {
       try {
-        const res  = await fetch(`/call-status/${idx}`);
+        const res  = await fetch(`/call-status?sid=${sid}`);
         if (!res.ok) return;
         const data = await res.json();
+        
         const badge = document.getElementById(`badge-${idx}`);
         if (badge) setBadge(badge, data.status);
+        
         if (TERMINAL.has(data.status)) {
           clearInterval(pollIntervals[idx]);
           delete pollIntervals[idx];
+          
           const btn = document.getElementById(`callBtn-${idx}`);
           if (btn) btn.disabled = false;
-          if (data.status === 'completed') showToast(`✅ Call to ${processedData[idx]?.name} completed`, 'success');
-          else showToast(`Call ${data.status}: ${processedData[idx]?.name}`, 'warning');
+          
+          if (data.status === 'completed') {
+            showToast(`✅ Call to ${processedData[idx]?.name} answered and completed!`, 'success');
+          } else if (data.status === 'busy' || data.status === 'no-answer') {
+            showToast(`⚠️ User cut the call or did not attend (${data.status})`, 'warning');
+          } else {
+            showToast(`Call ${data.status}: ${processedData[idx]?.name}`, 'warning');
+          }
         }
       } catch { /* silently ignore poll errors */ }
     }, 2000);
@@ -277,34 +314,62 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function setBadge(el, status) {
     el.className = `badge badge-${status}`;
-    el.textContent = status;
+    // Map Twilio raw statuses to beautiful UI text
+    const displayNames = {
+      'queued': 'Queued',
+      'initiated': 'Initiated',
+      'ringing': 'Ringing...',
+      'in-progress': 'In Progress 🔊',
+      'completed': 'Completed ✓',
+      'busy': 'Busy (Cut)',
+      'no-answer': 'No Answer',
+      'canceled': 'Canceled',
+      'failed': 'Failed ❌'
+    };
+    el.textContent = displayNames[status] || status;
   }
 
-  /* ── Call All ─────────────────────────────────────────────── */
+  /* ── Call All (Frontend Batch Loop) ───────────────────────── */
+  let cancelBatch = false;
+  
   callAllBtn.addEventListener('click', async () => {
     callAllBtn.disabled = true;
+    cancelBatchBtn.classList.remove('hidden');
+    cancelBatch = false;
     showToast('Starting batch calls...', 'info');
-    try {
-      const res  = await fetch('/call-all', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({delay_seconds:2}) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Batch start failed');
-
-      showToast(`📞 Batch started — ${json.total_queued} queued, ${json.skipped} skipped`, 'success');
-      cancelBatchBtn.classList.remove('hidden');
-      processedData.forEach((_, i) => { if (processedData[i].phone_valid) startPolling(i); });
-    } catch (err) {
-      showToast(err.message, 'error');
-      callAllBtn.disabled = false;
+    
+    let queued = 0;
+    for (let i = 0; i < processedData.length; i++) {
+      if (cancelBatch) {
+        showToast('Batch cancelled by user', 'warning');
+        break;
+      }
+      
+      const rec = processedData[i];
+      if (!rec.phone_valid) continue;
+      
+      // Skip if already in a terminal state or active
+      if (rec.call_sid && TERMINAL.has(document.getElementById(`badge-${i}`)?.textContent?.toLowerCase())) {
+        continue; // Wait, actually if we want to retry, we shouldn't skip. But let's skip for safety.
+      }
+      
+      queued++;
+      await window.callUser(i);
+      
+      // Wait 3 seconds between calls to avoid rate limits
+      await new Promise(resolve => setTimeout(resolve, 3000));
     }
+    
+    showToast(`📞 Batch finished — ${queued} calls processed`, 'success');
+    cancelBatchBtn.classList.add('hidden');
+    callAllBtn.disabled = false;
   });
 
-  cancelBatchBtn.addEventListener('click', async () => {
-    try {
-      await fetch('/call-all/cancel', { method:'POST' });
-      showToast('Batch cancelled', 'warning');
-      cancelBatchBtn.classList.add('hidden');
-      callAllBtn.disabled = false;
-    } catch { showToast('Cancel failed', 'error'); }
+  cancelBatchBtn.addEventListener('click', () => {
+    cancelBatch = true;
+    showToast('Cancelling remaining calls...', 'warning');
+    cancelBatchBtn.classList.add('hidden');
+    callAllBtn.disabled = false;
   });
 
   /* ── Config Check on Load ─────────────────────────────────── */

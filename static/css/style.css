@@ -235,10 +235,10 @@ body {
   text-transform:capitalize;white-space:nowrap;
 }
 .badge-idle     { background:rgba(100,116,139,.15);color:var(--text-3); }
-.badge-initiated, .badge-ringing { background:rgba(99,102,241,.15);color:#a5b4fc;animation:badgePulse 1.5s ease infinite; }
+.badge-queued, .badge-initiated, .badge-ringing { background:rgba(99,102,241,.15);color:#a5b4fc;animation:badgePulse 1.5s ease infinite; }
 .badge-in-progress { background:rgba(245,158,11,.15);color:#fbbf24; }
 .badge-completed   { background:rgba(16,185,129,.15);color:#34d399; }
-.badge-failed, .badge-busy, .badge-no-answer { background:rgba(239,68,68,.15);color:#f87171; }
+.badge-failed, .badge-busy, .badge-no-answer, .badge-canceled { background:rgba(239,68,68,.15);color:#f87171; }
 @keyframes badgePulse { 0%,100%{opacity:1}50%{opacity:.55} }
 
 /* ── Icon Action Buttons ────────────────────────────────────── */

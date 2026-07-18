@@ -93,97 +93,9 @@ def normalize_phone_number(raw: str) -> str:
     return f"+91{cleaned}"
 
 # ─────────────────────────────────────────────────────────────
-# 3. AUDIO CACHE
+# 3. STATLESS TWILIO INTEGRATION
 # ─────────────────────────────────────────────────────────────
-class AudioCache:
-    """
-    Thread-safe on-disk audio cache with TTL-based expiry.
-    Generates gTTS Hindi MP3 files on demand.
-    """
-
-    def __init__(self, cache_dir: str, ttl_seconds: int = 1800):
-        self.cache_dir   = cache_dir
-        self.ttl_seconds = ttl_seconds
-        self._lock       = threading.Lock()
-        os.makedirs(cache_dir, exist_ok=True)
-        logger.info("AudioCache initialised at %s (TTL=%ds)", cache_dir, ttl_seconds)
-
-    # ── private helpers ──────────────────────────────────────
-    def _path_for(self, record_id: int) -> str:
-        return os.path.join(self.cache_dir, f"audio_{record_id}.mp3")
-
-    def _is_valid(self, path: str) -> bool:
-        if not os.path.exists(path):
-            return False
-        age = time.time() - os.path.getmtime(path)
-        return age < self.ttl_seconds
-
-    def _generate(self, path: str, text: str) -> None:
-        """Synthesise TTS using gTTS and save to *path*."""
-        from gtts import gTTS
-        tmp_path = path + ".tmp"
-        try:
-            tts = gTTS(text=text, lang='hi')
-            tts.save(tmp_path)
-            
-            os.replace(tmp_path, path)
-            logger.info("Generated gTTS audio: %s", path)
-        except Exception:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
-            raise
-
-    # ── public API ───────────────────────────────────────────
-    def get_or_generate(self, record_id: int, text: str) -> str:
-        """Return the cached MP3 path, generating it first if needed."""
-        path = self._path_for(record_id)
-        with self._lock:
-            if not self._is_valid(path):
-                logger.info("Cache miss for record %d – generating …", record_id)
-                self._generate(path, text)
-            else:
-                logger.debug("Cache hit for record %d", record_id)
-        return path
-
-    def get_path(self, record_id: int):
-        """Return cached path if it exists and is still valid, else None."""
-        path = self._path_for(record_id)
-        return path if self._is_valid(path) else None
-
-    def cleanup_expired(self) -> int:
-        """Delete expired MP3 files. Returns count deleted."""
-        deleted = 0
-        with self._lock:
-            for fname in os.listdir(self.cache_dir):
-                if not fname.endswith(".mp3"):
-                    continue
-                fpath = os.path.join(self.cache_dir, fname)
-                if not self._is_valid(fpath):
-                    try:
-                        os.remove(fpath)
-                        deleted += 1
-                        logger.debug("Expired cache removed: %s", fpath)
-                    except OSError as exc:
-                        logger.warning("Could not delete %s: %s", fpath, exc)
-        if deleted:
-            logger.info("cleanup_expired: removed %d file(s)", deleted)
-        return deleted
-
-    def invalidate_all(self) -> int:
-        """Delete all cached MP3 files. Returns count deleted."""
-        deleted = 0
-        with self._lock:
-            for fname in os.listdir(self.cache_dir):
-                if not fname.endswith(".mp3"):
-                    continue
-                fpath = os.path.join(self.cache_dir, fname)
-                try:
-                    os.remove(fpath)
-                    deleted += 1
-                except OSError as exc:
-                    logger.warning("Could not delete %s: %s", fpath, exc)
-        logger.info("invalidate_all: cleared %d file(s)", deleted)
-        return deleted
+# Removed AudioCache as it is incompatible with Vercel Serverless
 
 
 # ─────────────────────────────────────────────────────────────
@@ -195,10 +107,6 @@ class CallManager:
     """
     Wraps Twilio REST calls and tracks per-record call state.
     """
-
-    TERMINAL_STATUSES = {
-        "completed", "busy", "no-answer", "canceled", "failed"
-    }
 
     def __init__(
         self,
@@ -212,36 +120,23 @@ class CallManager:
         self.caller_number = caller_number
         self.public_base_url = public_base_url.rstrip("/")
         
-        self._state: dict = {}
-        self._lock = threading.Lock()
         logger.info(
             "CallManager ready (Twilio, caller=%s, base_url=%s)",
             caller_number, public_base_url,
         )
 
-    # ── helpers ──────────────────────────────────────────────
-    def _default_state(self, record_id: int) -> dict:
-        return {
-            "record_id":  record_id,
-            "status":     "idle",
-            "call_sid":   None,
-            "updated_at": time.time(),
-        }
-
-    def _is_active(self, record_id: int) -> bool:
-        s = self._state.get(record_id, {}).get("status", "idle")
-        return s not in ("idle",) and s not in self.TERMINAL_STATUSES
-
     # ── public API ───────────────────────────────────────────
-    def initiate_call(self, record_id: int, phone_number: str, hindi_text: str = "") -> dict:
-        """Place an outbound call via Twilio and record initial state."""
+    def initiate_call(self, phone_number: str, hindi_text: str = "") -> dict:
+        """Place an outbound call via Twilio."""
         import base64
+        import urllib.parse
         from twilio.rest import Client
         
+        # Base64 encode the text to avoid URL encoding issues
         b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
         
-        # Twilio webhook (Return TwiML linking to the Google TTS audio)
-        answer_url = f"{self.public_base_url}/twiml/{record_id}?b64={b64_text}"
+        # Twilio webhook (Return TwiML with native Hindi TTS)
+        answer_url = f"{self.public_base_url}/twiml?b64={b64_text}"
         
         # Twilio requires E.164 format
         if not phone_number.startswith("+"):
@@ -260,41 +155,23 @@ class CallManager:
         
         call_sid = call.sid
 
-        with self._lock:
-            self._state[record_id] = {
-                "record_id":  record_id,
-                "status":     "initiated",
-                "call_sid":   call_sid,
-                "updated_at": time.time(),
-            }
-
-        logger.info("Call initiated via Twilio – record=%d SID=%s", record_id, call_sid)
+        logger.info("Call initiated via Twilio – SID=%s", call_sid)
         return {"call_sid": call_sid, "status": "initiated"}
 
-    def update_status(
-        self, record_id: int, status: str, call_sid: str = None
-    ) -> None:
-        with self._lock:
-            entry = self._state.get(record_id, self._default_state(record_id))
-            entry["status"]     = status
-            entry["updated_at"] = time.time()
-            if call_sid:
-                entry["call_sid"] = call_sid
-            self._state[record_id] = entry
-        logger.info("Status update – record=%d status=%s", record_id, status)
-
-    def get_status(self, record_id: int) -> dict:
-        with self._lock:
-            return dict(self._state.get(record_id, self._default_state(record_id)))
-
-    def reset_all_state(self) -> None:
-        with self._lock:
-            self._state.clear()
-        logger.info("CallManager state reset")
-
-    def is_active(self, record_id: int) -> bool:
-        with self._lock:
-            return self._is_active(record_id)
+    def get_status(self, call_sid: str) -> dict:
+        """Fetch real-time call status directly from Twilio API."""
+        from twilio.rest import Client
+        try:
+            client = Client(self.account_sid, self.auth_token)
+            call = client.calls(call_sid).fetch()
+            return {
+                "call_sid": call.sid,
+                "status": call.status,
+                "updated_at": time.time()
+            }
+        except Exception as exc:
+            logger.error("Failed to fetch status for %s: %s", call_sid, exc)
+            return {"call_sid": call_sid, "status": "unknown"}
 
 # ─────────────────────────────────────────────────────────────
 # 5. RAJASTHANI / HINDI NUMBER SYSTEM
@@ -554,9 +431,6 @@ def _map_columns(df):
 # ─────────────────────────────────────────────────────────────
 # 9. INITIALIZATION
 # ─────────────────────────────────────────────────────────────
-AUDIO_CACHE_DIR = tempfile.mkdtemp(prefix="rajasthani_voice_")
-audio_cache     = AudioCache(AUDIO_CACHE_DIR, ttl_seconds=1800)
-
 # Build CallManager only when all credentials are present
 cm = None
 _cm_errors = []
@@ -596,21 +470,6 @@ def _build_call_manager():
 cm, _cm_errors = _build_call_manager()
 
 
-# ── Background cleanup thread ────────────────────────────────
-def _cleanup_worker():
-    while True:
-        time.sleep(300)  # every 5 minutes
-        try:
-            audio_cache.cleanup_expired()
-        except Exception as exc:
-            logger.warning("Cleanup thread error: %s", exc)
-
-
-_cleanup_thread = threading.Thread(target=_cleanup_worker, daemon=True)
-_cleanup_thread.start()
-logger.info("Background cleanup thread started")
-
-
 # ─────────────────────────────────────────────────────────────
 # 10. ROUTES
 # ─────────────────────────────────────────────────────────────
@@ -620,17 +479,82 @@ logger.info("Background cleanup thread started")
 def index():
     return render_template("index.html")
 
-@app.route("/twiml/<int:record_id>", methods=["GET", "POST"])
-def twilio_twiml(record_id):
+@app.route("/twiml", methods=["GET", "POST"])
+def twilio_twiml():
+    import base64
+    import urllib.parse
     b64_text = request.args.get("b64", "")
-    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
-    audio_url = f"{base_url}/audio/{record_id}?b64={b64_text}"
     
+    base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
+    audio_url = f"{base_url}/audio?b64={urllib.parse.quote(b64_text)}"
+    
+    # Use Twilio's Play tag to fetch the Sarvam AI audio statelessly
     xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Play>{audio_url}</Play>
 </Response>"""
     return Response(xml_response, mimetype="application/xml")
+
+# ── GET /audio ───────────────────────────────────────────────
+@app.route("/audio", methods=["GET", "POST"])
+def serve_audio():
+    """Stateless audio endpoint. Calls Sarvam AI API and returns binary audio stream."""
+    import base64
+    from sarvamai import SarvamAI
+    from io import BytesIO
+
+    b64_text = request.args.get("b64", "").strip()
+    if not b64_text:
+        return jsonify({"error": "Missing b64 text"}), 400
+
+    try:
+        hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
+    except Exception:
+        return jsonify({"error": "Invalid base64 encoding"}), 400
+
+    sarvam_key = os.getenv("SARVAM_API_KEY", "").strip()
+    if not sarvam_key:
+        logger.error("SARVAM_API_KEY is missing!")
+        return jsonify({"error": "Sarvam AI API Key not configured"}), 503
+
+    try:
+        logger.info("Generating Sarvam AI audio for text length: %d", len(hindi_text))
+        client = SarvamAI(api_subscription_key=sarvam_key)
+        
+        # Call Sarvam AI synchronously (typically <2s response)
+        response = client.text_to_speech.convert(
+            model="bulbul:v3",
+            text=hindi_text,
+            target_language_code="hi-IN",
+            speaker="shubh",
+        )
+        
+        # response is an object with base64 encoded 'audios' array
+        # e.g., response.audios[0] contains the base64 string
+        if not response or not hasattr(response, 'audios') or not response.audios:
+            raise Exception("Invalid response from Sarvam AI")
+            
+        b64_audio = response.audios[0]
+        audio_bytes = base64.b64decode(b64_audio)
+        
+        # Send raw bytes directly as a WAV file
+        buffer = BytesIO(audio_bytes)
+        buffer.seek(0)
+        
+        res = send_file(
+            buffer,
+            mimetype="audio/wav",
+            as_attachment=False
+        )
+        
+        # CRITICAL: Tell Vercel CDN to cache this audio response for 1 hour
+        # This prevents duplicate Sarvam AI API charges and speeds up Twilio playback
+        res.headers["Cache-Control"] = "public, max-age=3600"
+        return res
+
+    except Exception as exc:
+        logger.exception("Sarvam AI TTS generation failed")
+        return jsonify({"error": f"Audio generation failed: {exc}"}), 502
 
 # ── POST /upload ─────────────────────────────────────────────
 @app.route("/upload", methods=["POST"])
@@ -733,71 +657,12 @@ def upload():
 
     # Persist and reset state
     processed_data = records
-    audio_cache.invalidate_all()
-    if cm:
-        cm.reset_all_state()
 
     logger.info("Upload complete: %d record(s) processed", len(records))
     return jsonify({
         "data":            records,
         "call_configured": cm is not None,
     })
-
-# ── GET /generate-speech/<index> ─────────────────────────────
-@app.route("/generate-speech/<int:index>", methods=["GET"])
-def generate_speech(index: int):
-    if index < 0 or index >= len(processed_data):
-        return jsonify({"error": f"Record index {index} out of range"}), 404
-
-    record     = processed_data[index]
-    hindi_text = record.get("rajasthani_text", "")
-    if not hindi_text:
-        return jsonify({"error": "No text available for this record"}), 400
-
-    try:
-        mp3_path = audio_cache.get_or_generate(index, hindi_text)
-        return send_file(
-            mp3_path,
-            mimetype="audio/mpeg",
-            as_attachment=False,
-            download_name=f"speech_{index}.mp3",
-        )
-    except Exception as exc:
-        logger.exception("Speech generation failed for index %d", index)
-        return jsonify({"error": f"Speech generation failed: {exc}"}), 500
-
-
-
-# ── GET/POST /audio/<record_id> ───────────────────────────────────
-@app.route("/audio/<int:record_id>", methods=["GET", "POST"])
-def serve_audio(record_id: int):
-    """Used by Twilio to stream audio during a voice call."""
-    import base64
-    b64_text = request.args.get("b64", "").strip()
-    if b64_text:
-        try:
-            hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
-        except Exception:
-            hindi_text = request.args.get("t", "").strip()
-    else:
-        hindi_text = request.args.get("t", "").strip()
-
-    # Fallback to memory if t is not provided (for direct browser playback)
-    if not hindi_text:
-        if record_id < 0 or record_id >= len(processed_data):
-            return jsonify({"error": "Record not found"}), 404
-        record = processed_data[record_id]
-        hindi_text = record.get("rajasthani_text", "")
-
-    if not hindi_text:
-        return jsonify({"error": "No text for this record"}), 400
-
-    try:
-        mp3_path = audio_cache.get_or_generate(record_id, hindi_text)
-        return send_file(mp3_path, mimetype="audio/mpeg", as_attachment=False, conditional=True)
-    except Exception as exc:
-        logger.exception("Audio serve failed for record %d", record_id)
-        return jsonify({"error": str(exc)}), 500
 
 
 # ── GET /call-config-status ──────────────────────────────────
@@ -823,36 +688,26 @@ def call_config_status():
     })
 
 
-# ── POST /call/<record_id> ───────────────────────────────────
-@app.route("/call/<int:record_id>", methods=["POST"])
-def initiate_call(record_id: int):
+# ── POST /call ───────────────────────────────────
+@app.route("/call", methods=["POST"])
+def initiate_call():
+    """Stateless Twilio Call Initialiser. Takes phone number and text in JSON."""
     if cm is None:
         missing = _cm_errors if _cm_errors else ["Twilio credentials not configured"]
         return jsonify({"error": "Twilio not configured", "missing": missing}), 503
 
-    if record_id < 0 or record_id >= len(processed_data):
-        return jsonify({"error": f"Record {record_id} not found"}), 404
+    req_data = request.get_json() or {}
+    phone_number = req_data.get("phone_number")
+    hindi_text = req_data.get("rajasthani_text", "")
 
-    record = processed_data[record_id]
-
-    if not record.get("phone_valid"):
-        return jsonify({
-            "error": "Invalid phone number for this record",
-            "phone_number": record.get("phone_number"),
-        }), 400
-
-    if cm.is_active(record_id):
-        return jsonify({
-            "error": "A call is already active for this record",
-            "status": cm.get_status(record_id),
-        }), 409
+    if not phone_number:
+        return jsonify({"error": "Missing phone_number in request"}), 400
 
     try:
-        hindi_text = record.get("rajasthani_text", "")
-        result = cm.initiate_call(record_id, record["phone_number"], hindi_text)
+        result = cm.initiate_call(phone_number, hindi_text)
         return jsonify(result), 200
     except Exception as exc:
-        logger.exception("Twilio call failed for record %d", record_id)
+        logger.exception("Twilio call failed to %s", phone_number)
         return jsonify({"error": f"Twilio API error: {exc}"}), 502
 
 
@@ -862,104 +717,22 @@ def initiate_call(record_id: int):
 
 
 
-# ── POST /call-status/<record_id> (Twilio callback) ──────────
-@app.route("/call-status/<int:record_id>", methods=["POST"])
-def call_status_callback(record_id: int):
-    """Twilio posts CallStatus updates here."""
-    call_status = request.form.get("CallStatus", "unknown")
-    call_sid    = request.form.get("CallSid")
-    logger.info(
-        "Twilio callback – record=%d CallStatus=%s SID=%s",
-        record_id, call_status, call_sid,
-    )
-    if cm:
-        cm.update_status(record_id, call_status, call_sid)
-    return Response("", status=200)
-
-
-# ── GET /call-status/<record_id> (UI poll) ───────────────────
-@app.route("/call-status/<int:record_id>", methods=["GET"])
-def call_status_poll(record_id: int):
-    """Poll endpoint for the frontend to check call state."""
+# ── GET /call-status ───────────────────────────────────
+@app.route("/call-status", methods=["GET"])
+def call_status_poll():
+    """Poll endpoint for the frontend to check real-time call state via Twilio API."""
+    call_sid = request.args.get("sid")
+    if not call_sid:
+        return jsonify({"error": "Missing sid parameter"}), 400
+        
     if cm is None:
-        return jsonify({
-            "record_id":  record_id,
-            "status":     "idle",
-            "call_sid":   None,
-            "updated_at": None,
-        })
-    state = cm.get_status(record_id)
+        return jsonify({"error": "Twilio not configured"}), 503
+        
+    state = cm.get_status(call_sid)
     return jsonify(state)
 
 
-# ── batch call state ─────────────────────────────────────────
-batch_state: dict = {}
-cancel_batch_flag: bool = False
-_batch_lock = threading.Lock()
-TERMINAL_STATUSES = {"completed", "failed", "busy", "no-answer", "canceled"}
-
-
-# ── POST /call-all ───────────────────────────────────────────
-@app.route("/call-all", methods=["POST"])
-def call_all():
-    global cancel_batch_flag, batch_state
-
-    if cm is None:
-        return jsonify({"error": "Twilio not configured"}), 503
-    if not processed_data:
-        return jsonify({"error": "No data uploaded"}), 400
-
-    eligible = []
-    skipped  = 0
-    for idx, record in enumerate(processed_data):
-        if not record.get("phone_valid"):
-            skipped += 1
-            continue
-        status = cm.get_status(idx).get("status", "idle")
-        if status == "idle" or status in TERMINAL_STATUSES:
-            eligible.append(idx)
-
-    if not eligible:
-        return jsonify({
-            "message":      "No eligible records to call",
-            "total_queued": 0,
-            "skipped":      skipped,
-        }), 200
-
-    batch_id = str(uuid.uuid4())
-    _batch_cancel_flag.clear()
-
-    def _batch_worker():
-        logger.info("Batch %s started: %d calls queued", batch_id, len(eligible))
-        for idx in eligible:
-            if _batch_cancel_flag.is_set():
-                logger.info("Batch %s cancelled", batch_id)
-                break
-            record = processed_data[idx]
-            try:
-                hindi_text = record.get("rajasthani_text", "")
-                cm.initiate_call(idx, record["phone_number"], hindi_text)
-            except Exception as exc:
-                logger.error("Batch call failed for record %d: %s", idx, exc)
-                cm.update_status(idx, "failed")
-            time.sleep(2)
-        logger.info("Batch %s finished", batch_id)
-
-    threading.Thread(target=_batch_worker, daemon=True).start()
-
-    return jsonify({
-        "batch_id":     batch_id,
-        "total_queued": len(eligible),
-        "skipped":      skipped,
-    }), 202
-
-
-# ── POST /call-all/cancel ────────────────────────────────────
-@app.route("/call-all/cancel", methods=["POST"])
-def cancel_call_all():
-    _batch_cancel_flag.set()
-    logger.info("Batch call cancel requested")
-    return jsonify({"cancelled": True})
+# (Batch routes removed for fully client-side execution)
 
 
 # ── GET /download-sample ─────────────────────────────────────
@@ -1009,5 +782,4 @@ def internal_error(exc):
 if __name__ == "__main__":
     logger.info("Starting Rajasthani Voice Pro on http://0.0.0.0:5000")
     logger.info("Twilio configured: %s", cm is not None)
-    logger.info("Audio cache dir:   %s", AUDIO_CACHE_DIR)
     app.run(debug=False, host="0.0.0.0", port=5000)
