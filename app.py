@@ -227,12 +227,12 @@ class CallManager:
 
     def __init__(
         self,
-        auth_id: str,
+        account_sid: str,
         auth_token: str,
         caller_number: str,
         public_base_url: str
     ):
-        self.auth_id = auth_id
+        self.account_sid = account_sid
         self.auth_token = auth_token
         self.caller_number = caller_number
         self.public_base_url = public_base_url.rstrip("/")
@@ -240,7 +240,7 @@ class CallManager:
         self._state: dict = {}
         self._lock = threading.Lock()
         logger.info(
-            "CallManager ready (Plivo, caller=%s, base_url=%s)",
+            "CallManager ready (Twilio, caller=%s, base_url=%s)",
             caller_number, public_base_url,
         )
 
@@ -259,38 +259,31 @@ class CallManager:
 
     # ── public API ───────────────────────────────────────────
     def initiate_call(self, record_id: int, phone_number: str, hindi_text: str = "") -> dict:
-        """Place an outbound call via Plivo and record initial state."""
+        """Place an outbound call via Twilio and record initial state."""
         import base64
-        import requests
+        from twilio.rest import Client
         
         b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
-        auth = (self.auth_id, self.auth_token)
-        url = f"https://api.plivo.com/v1/Account/{self.auth_id}/Call/"
         
-        answer_url = f"{self.public_base_url}/plivoxml/{record_id}?b64={b64_text}"
+        # Twilio webhook (Return TwiML linking to the Google TTS audio)
+        answer_url = f"{self.public_base_url}/twiml/{record_id}?b64={b64_text}"
         
-        # Plivo requires country code
-        if phone_number.startswith("+"):
-            formatted_to = phone_number[1:]
-        elif len(phone_number) == 10:
-            formatted_to = "91" + phone_number
+        # Twilio requires E.164 format
+        if not phone_number.startswith("+"):
+            formatted_to = "+91" + phone_number if len(phone_number) == 10 else "+" + phone_number
         else:
             formatted_to = phone_number
             
-        payload = {
-            "from": self.caller_number,
-            "to": formatted_to,
-            "answer_url": answer_url,
-            "answer_method": "GET"
-        }
+        client = Client(self.account_sid, self.auth_token)
         
-        resp = requests.post(url, json=payload, auth=auth)
+        call = client.calls.create(
+            to=formatted_to,
+            from_=self.caller_number,
+            url=answer_url,
+            method="GET",
+        )
         
-        if resp.status_code not in (200, 201):
-            logger.error("Plivo API error: %s - %s", resp.status_code, resp.text)
-            resp.raise_for_status()
-            
-        call_sid = resp.json().get("request_uuid", f"plivo_{record_id}")
+        call_sid = call.sid
 
         with self._lock:
             self._state[record_id] = {
@@ -300,7 +293,7 @@ class CallManager:
                 "updated_at": time.time(),
             }
 
-        logger.info("Call initiated via Plivo – record=%d SID=%s", record_id, call_sid)
+        logger.info("Call initiated via Twilio – record=%d SID=%s", record_id, call_sid)
         return {"call_sid": call_sid, "status": "initiated"}
 
     def update_status(
@@ -598,30 +591,30 @@ def _build_call_manager():
     missing  = []
     errors   = []
     
-    auth_id = os.getenv("PLIVO_AUTH_ID", "").strip()
-    auth_token = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
-    caller = os.getenv("PLIVO_PHONE_NUMBER", "").strip()
+    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    caller = os.getenv("TWILIO_CALLER_NUMBER", "").strip()
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
-    if not auth_id:    missing.append("PLIVO_AUTH_ID")
-    if not auth_token: missing.append("PLIVO_AUTH_TOKEN")
-    if not caller:     missing.append("PLIVO_PHONE_NUMBER")
-    if not base_url:   missing.append("PUBLIC_BASE_URL")
+    if not sid:      missing.append("TWILIO_ACCOUNT_SID")
+    if not token:    missing.append("TWILIO_AUTH_TOKEN")
+    if not caller:   missing.append("TWILIO_CALLER_NUMBER")
+    if not base_url: missing.append("PUBLIC_BASE_URL")
 
     if missing:
-        errors.append(f"Missing Plivo credentials: {', '.join(missing)}")
+        errors.append(f"Missing Twilio credentials: {', '.join(missing)}")
         return None, errors
 
     try:
         mgr = CallManager(
-            auth_id=auth_id,
-            auth_token=auth_token,
+            account_sid=sid,
+            auth_token=token,
             caller_number=caller,
             public_base_url=base_url
         )
         return mgr, []
     except Exception as exc:
-        logger.exception("Failed to build CallManager for Plivo")
+        logger.exception("Failed to build CallManager for Twilio")
         return None, [str(exc)]
 
 
@@ -652,8 +645,8 @@ logger.info("Background cleanup thread started")
 def index():
     return render_template("index.html")
 
-@app.route("/plivoxml/<int:record_id>", methods=["GET", "POST"])
-def plivo_xml(record_id):
+@app.route("/twiml/<int:record_id>", methods=["GET", "POST"])
+def twilio_twiml(record_id):
     b64_text = request.args.get("b64", "")
     base_url = os.getenv("PUBLIC_BASE_URL", "").rstrip("/")
     audio_url = f"{base_url}/audio/{record_id}?b64={b64_text}"
