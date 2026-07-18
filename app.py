@@ -828,18 +828,17 @@ def serve_audio(record_id: int):
 # ── GET /call-config-status ──────────────────────────────────
 @app.route("/call-config-status", methods=["GET"])
 def call_config_status():
-    """Return Exotel configuration health-check."""
+    """Return Twilio configuration health-check."""
     missing = list(_cm_errors) if _cm_errors and all(
-        e in ["EXOTEL_ACCOUNT_SID", "EXOTEL_API_TOKEN",
-               "EXOTEL_PHONE_NUMBER", "EXOTEL_API_KEY", "PUBLIC_BASE_URL"] for e in _cm_errors
+        e in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
+               "TWILIO_CALLER_NUMBER", "PUBLIC_BASE_URL"] for e in _cm_errors
     ) else []
 
     # Always re-check live env
     live_missing = []
-    if not os.getenv("EXOTEL_ACCOUNT_SID", "").strip():  live_missing.append("EXOTEL_ACCOUNT_SID")
-    if not os.getenv("EXOTEL_API_TOKEN", "").strip():    live_missing.append("EXOTEL_API_TOKEN")
-    if not os.getenv("EXOTEL_PHONE_NUMBER", "").strip(): live_missing.append("EXOTEL_PHONE_NUMBER")
-    if not os.getenv("EXOTEL_API_KEY", "").strip():      live_missing.append("EXOTEL_API_KEY")
+    if not os.getenv("TWILIO_ACCOUNT_SID", "").strip():  live_missing.append("TWILIO_ACCOUNT_SID")
+    if not os.getenv("TWILIO_AUTH_TOKEN", "").strip():   live_missing.append("TWILIO_AUTH_TOKEN")
+    if not os.getenv("TWILIO_CALLER_NUMBER", "").strip():live_missing.append("TWILIO_CALLER_NUMBER")
     if not os.getenv("PUBLIC_BASE_URL", "").strip():     live_missing.append("PUBLIC_BASE_URL")
 
     return jsonify({
@@ -853,8 +852,8 @@ def call_config_status():
 @app.route("/call/<int:record_id>", methods=["POST"])
 def initiate_call(record_id: int):
     if cm is None:
-        missing = _cm_errors if _cm_errors else ["Exotel credentials not configured"]
-        return jsonify({"error": "Exotel not configured", "missing": missing}), 503
+        missing = _cm_errors if _cm_errors else ["Twilio credentials not configured"]
+        return jsonify({"error": "Twilio not configured", "missing": missing}), 503
 
     if record_id < 0 or record_id >= len(processed_data):
         return jsonify({"error": f"Record {record_id} not found"}), 404
@@ -878,8 +877,8 @@ def initiate_call(record_id: int):
         result = cm.initiate_call(record_id, record["phone_number"], hindi_text)
         return jsonify(result), 200
     except Exception as exc:
-        logger.exception("Exotel call failed for record %d", record_id)
-        return jsonify({"error": f"Exotel API error: {exc}"}), 502
+        logger.exception("Twilio call failed for record %d", record_id)
+        return jsonify({"error": f"Twilio API error: {exc}"}), 502
 
 
 
@@ -931,7 +930,7 @@ def call_all():
     global cancel_batch_flag, batch_state
 
     if cm is None:
-        return jsonify({"error": "Exotel not configured"}), 503
+        return jsonify({"error": "Twilio not configured"}), 503
     if not processed_data:
         return jsonify({"error": "No data uploaded"}), 400
 
