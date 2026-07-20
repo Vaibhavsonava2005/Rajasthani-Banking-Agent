@@ -145,19 +145,21 @@ class CallManager:
         else:
             formatted_to = phone_number
             
-        client = Client(self.account_sid, self.auth_token)
-        
-        call = client.calls.create(
-            to=formatted_to,
-            from_=self.caller_number,
-            url=answer_url,
-            method="GET",
-        )
-        
-        call_sid = call.sid
-
-        logger.info("Call initiated via Twilio – SID=%s", call_sid)
-        return {"call_sid": call_sid, "status": "initiated"}
+        logger.info(f"Calling Twilio to dial {formatted_to} with URL {answer_url}")
+        try:
+            client = Client(self.account_sid, self.auth_token)
+            call = client.calls.create(
+                to=formatted_to,
+                from_=self.caller_number,
+                url=answer_url,
+                status_callback=f"{actual_base_url}/twilio-cache-warm?b64={b64_text}",
+                status_callback_event=["initiated", "ringing"],
+            )
+            logger.info("Call successfully initiated, SID: %s", call.sid)
+            return {"call_sid": call.sid}
+        except Exception as e:
+            logger.error(f"Twilio call failed: {e}")
+            return {"error": str(e)}
 
     def get_status(self, call_sid: str) -> dict:
         """Fetch real-time call status directly from Twilio API."""
@@ -714,12 +716,26 @@ def initiate_call():
         logger.exception("Twilio call failed to %s", phone_number)
         return jsonify({"error": f"Twilio API error: {exc}"}), 502
 
-
-
-
-
-
-
+@app.route("/twilio-cache-warm", methods=["POST"])
+def twilio_cache_warm():
+    """
+    Ultra Deep AI Logic:
+    Twilio servers are in the US. Vercel edge caches are regional.
+    When Twilio initiates the call, it hits this webhook from the US.
+    We instantly force this US-based server to fetch the audio, 
+    warming the local US cache BEFORE the user even picks up the phone!
+    """
+    b64_text = request.args.get("b64")
+    if b64_text:
+        try:
+            import requests
+            # Hit the audio endpoint. This executes Sarvam AI and caches it in this specific region!
+            # We block up to 10 seconds to ensure the cache is fully written before Twilio asks for it.
+            requests.get(f"{request.host_url}audio?b64={b64_text}", timeout=10)
+        except Exception as e:
+            logger.warning(f"Cache warm failed: {e}")
+    
+    return "OK", 200
 
 # ── GET /call-status ───────────────────────────────────
 @app.route("/call-status", methods=["GET"])
