@@ -206,10 +206,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       // Base64 encode the text for the URL
-      // Use standard btoa with utf-8 encoding trick
-      const b64_text = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
+      // Use standard btoa with utf-8 encoding trick, then convert to urlsafe
+      const standard_b64 = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
+      const urlsafe_b64 = standard_b64.replace(/\+/g, '-').replace(/\//g, '_');
       
-      const res = await fetch(`/audio?b64=${encodeURIComponent(b64_text)}`);
+      const res = await fetch(`/audio?b64=${encodeURIComponent(urlsafe_b64)}`);
       if (!res.ok) {
           const json = await res.json();
           throw new Error(json.error || 'Audio generation failed');
@@ -254,8 +255,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setBadge(badge, 'generating');
     const rec = processedData[idx];
     try {
-        const b64_text = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
-        await fetch(`/audio?b64=${encodeURIComponent(b64_text)}`);
+        const standard_b64 = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
+        const urlsafe_b64 = standard_b64.replace(/\+/g, '-').replace(/\//g, '_');
+        await fetch(`/audio?b64=${encodeURIComponent(urlsafe_b64)}`);
     } catch (e) {
         console.warn("Pre-fetch failed, falling back to dynamic");
     }
