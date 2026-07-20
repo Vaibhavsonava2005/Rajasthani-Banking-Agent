@@ -249,10 +249,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn   = document.getElementById(`callBtn-${idx}`);
     const badge = document.getElementById(`badge-${idx}`);
     btn.disabled = true;
+    
+    // Deep AI Logic: Pre-warm Vercel cache to eliminate the silence delay when user answers!
+    setBadge(badge, 'generating');
+    const rec = processedData[idx];
+    try {
+        const b64_text = btoa(unescape(encodeURIComponent(rec.rajasthani_text)));
+        await fetch(`/audio?b64=${encodeURIComponent(b64_text)}`);
+    } catch (e) {
+        console.warn("Pre-fetch failed, falling back to dynamic");
+    }
+
     setBadge(badge, 'initiated');
 
     try {
-      const rec = processedData[idx];
       const res = await fetch(`/call`, { 
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -324,7 +334,8 @@ document.addEventListener('DOMContentLoaded', () => {
       'busy': 'Busy (Cut)',
       'no-answer': 'No Answer',
       'canceled': 'Canceled',
-      'failed': 'Failed ❌'
+      'failed': 'Failed ❌',
+      'generating': 'Generating Audio ⚡'
     };
     el.textContent = displayNames[status] || status;
   }
