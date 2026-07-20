@@ -93,6 +93,11 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const formData = new FormData();
       formData.append('file', fileInput.files[0]);
+      
+      const globalBankInput = document.getElementById('globalBankName');
+      if (globalBankInput && globalBankInput.value.trim() !== '') {
+        formData.append('global_bank_name', globalBankInput.value.trim());
+      }
 
       const res = await fetch('/upload', { method: 'POST', body: formData });
       const json = await res.json();

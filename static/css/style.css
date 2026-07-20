@@ -199,6 +199,22 @@ body {
   background: rgba(99,102,241,.06);
   box-shadow: 0 0 24px rgba(99,102,241,.2);
 }
+
+.form-control {
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-1);
+  font-size: 0.95rem;
+  margin-bottom: 1rem;
+  transition: border-color var(--transition);
+}
+.form-control:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 .drop-icon { font-size:3rem;color:var(--text-3);display:block;margin-bottom:.75rem;transition:color var(--transition); }
 .drop-zone:hover .drop-icon, .drop-zone.dragover .drop-icon { color:var(--accent); }
 .drop-primary { display:block;font-size:1rem;font-weight:600;color:var(--text-2); }

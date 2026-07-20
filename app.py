@@ -640,6 +640,8 @@ def upload():
         "due_date", "total_loan", "paid_loan", "balance_loan",
     ]
 
+    global_bank_name = request.form.get('global_bank_name', '').strip()
+
     def _get_val(row, field, pos_idx):
         col = col_map.get(field)
         if col and col in df.columns:
@@ -652,7 +654,7 @@ def upload():
     for _, row in df.iterrows():
         name         = _get_val(row, "name",         0)
         phone_raw    = _get_val(row, "phone",         1)
-        bank_name    = _get_val(row, "bank_name",     2)
+        bank_name    = global_bank_name if global_bank_name else _get_val(row, "bank_name", 2)
         emi_amount   = _get_val(row, "emi_amount",    3)
         due_date     = _get_val(row, "due_date",      4)
         total_loan   = _get_val(row, "total_loan",    5)
