@@ -317,6 +317,9 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             showToast(`Call ${data.status}: ${processedData[idx]?.name}`, 'warning');
           }
+          
+          // Store status in data for reliable batch resuming
+          if (processedData[idx]) processedData[idx].status = data.status;
         }
       } catch { /* silently ignore poll errors */ }
     }, 2000);
@@ -359,9 +362,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const rec = processedData[i];
       if (!rec.phone_valid) continue;
       
-      // Skip if already in a terminal state or active
-      if (rec.call_sid && TERMINAL.has(document.getElementById(`badge-${i}`)?.textContent?.toLowerCase())) {
-        continue; // Wait, actually if we want to retry, we shouldn't skip. But let's skip for safety.
+      // Skip if already dialed and in a terminal state, or currently in progress
+      if (rec.status && TERMINAL.has(rec.status)) {
+        continue;
+      }
+      if (rec.call_sid && !rec.status) {
+        // Active call in progress, skip dialing again
+        continue;
       }
       
       queued++;
