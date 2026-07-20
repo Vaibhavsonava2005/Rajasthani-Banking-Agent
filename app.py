@@ -407,20 +407,26 @@ def generate_hindi_text(
     bank_str      = normalize_bank_name_for_tts(str(bank_name).strip())
     emi_words     = _to_words(emi_amount)
     
+    total_words   = _to_words(total_loan)
+    paid_words    = _to_words(paid_loan)
+    balance_words = _to_words(balance_loan)
+    
     if call_type == "recovery":
         # Strict Recovery Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"{bank_str} से यह रिकवरी कॉल है।",
+            f"{bank_str} बैंक से यह रिकवरी कॉल है।",
             f"आपकी {due_str} की {emi_words} रुपये की किश्त अभी तक पेंडिंग है।",
-            "कृपया इसे आज ही जमा कराएं, अन्यथा आपको पेनाल्टी लग सकती है। धन्यवाद।"
+            f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
+            "कृपया अपना बकाया आज ही जमा कराएं, अन्यथा आपको पेनाल्टी लग सकती है। धन्यवाद।"
         ]
     else:
         # Soft Reminder Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"{bank_str} की तरफ से रिमाइंडर कॉल है।",
+            f"आपका {bank_str} बैंक में स्वागत है। यह एक रिमाइंडर कॉल है।",
             f"आपकी इस महीने की किश्त {emi_words} रुपये {due_str} को आने वाली है।",
+            f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
             "कृपया समय पर भुगतान करके अपना सिविल स्कोर बनाए रखें। धन्यवाद।"
         ]
 
