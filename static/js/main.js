@@ -153,6 +153,8 @@ document.addEventListener('DOMContentLoaded', () => {
             ${rec.call_type === 'recovery' ? 'Recovery' : 'Reminder'}
           </span>
         </td>
+        <td>${formatINR(rec.total_loan)}</td>
+        <td>${formatINR(rec.paid_loan)}</td>
         <td>${formatINR(rec.balance_loan)}</td>
         <td><span class="badge badge-idle" id="badge-${idx}">idle</span></td>
         <td>
