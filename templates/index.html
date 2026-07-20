@@ -101,7 +101,24 @@
             </div>
           </div>
           <div id="statusMsg" class="status-msg hidden"></div>
-          <input type="text" id="globalBankName" class="form-control" placeholder="Optional: Global Bank Name for entire batch (e.g., HDFC Bank)" />
+          <select id="globalBankName" class="form-control" style="cursor: pointer;">
+            <option value="all">All Banks (No Filter)</option>
+            <option value="sbi">State Bank of India (SBI)</option>
+            <option value="hdfc">HDFC Bank</option>
+            <option value="icici">ICICI Bank</option>
+            <option value="axis">Axis Bank</option>
+            <option value="kotak">Kotak Mahindra Bank</option>
+            <option value="pnb">Punjab National Bank (PNB)</option>
+            <option value="bob">Bank of Baroda (BOB)</option>
+            <option value="union">Union Bank of India</option>
+            <option value="idfc">IDFC First Bank</option>
+            <option value="indusind">IndusInd Bank</option>
+            <option value="yes">Yes Bank</option>
+            <option value="canara">Canara Bank</option>
+            <option value="bajaj">Bajaj Finance</option>
+            <option value="hero">Hero Fincorp</option>
+            <option value="piramal">Piramal Finance</option>
+          </select>
           <div class="upload-actions">
             <button type="submit" class="btn btn-primary" id="uploadBtn">
               <i class="fa-solid fa-wand-magic-sparkles"></i> Process &amp; Generate Speech
