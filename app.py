@@ -415,7 +415,7 @@ def generate_hindi_text(
         # Strict Recovery Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"{bank_str} बैंक से यह रिकवरी कॉल है।",
+            f"{bank_str} से यह रिकवरी कॉल है।",
             f"आपकी {due_str} की {emi_words} रुपये की किश्त अभी तक पेंडिंग है।",
             f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
             "कृपया अपना बकाया आज ही जमा कराएं, अन्यथा आपको पेनाल्टी लग सकती है। धन्यवाद।"
@@ -424,7 +424,7 @@ def generate_hindi_text(
         # Soft Reminder Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"आपका {bank_str} बैंक में स्वागत है। यह एक रिमाइंडर कॉल है।",
+            f"आपका {bank_str} में स्वागत है। यह एक रिमाइंडर कॉल है।",
             f"आपकी इस महीने की किश्त {emi_words} रुपये {due_str} को आने वाली है।",
             f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
             "कृपया समय पर भुगतान करके अपना सिविल स्कोर बनाए रखें। धन्यवाद।"
@@ -520,16 +520,21 @@ def index():
 
 @app.route("/twiml", methods=["GET", "POST"])
 def twilio_twiml():
-    import base64
     import urllib.parse
     b64_text = request.args.get("b64", "")
     
     base_url = request.host_url.rstrip("/")
     audio_url = f"{base_url}/audio?b64={urllib.parse.quote(b64_text)}"
     
-    # Use Twilio's Play tag to fetch the Sarvam AI audio statelessly
+    # Use Twilio's Play tag to fetch the Sarvam AI audio statelessly.
+    # CRITICAL LATENCY FIX: 
+    # By injecting a Twilio native TTS <Say> tag BEFORE the <Play> tag, Twilio instantly 
+    # starts speaking to the user the millisecond they pick up the phone!
+    # While Twilio speaks this 2-second filler, the Vercel backend generates and returns 
+    # the Sarvam AI audio, completely masking the API generation time!
     xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+    <Say language="hi-IN" voice="Polly.Aditi">नमस्कार। कृपया एक सेकंड होल्ड करें, आपकी कॉल कनेक्ट की जा रही है।</Say>
     <Play>{audio_url}</Play>
 </Response>"""
     return Response(xml_response, mimetype="application/xml")
