@@ -349,6 +349,39 @@ def normalize_bank_name_for_tts(bank_name: str) -> str:
 # ─────────────────────────────────────────────────────────────
 # 7. HINDI TEXT GENERATOR
 # ─────────────────────────────────────────────────────────────
+import re
+from datetime import datetime
+import pytz
+from dateutil import parser as date_parser
+
+def determine_call_type(due_date_str: str) -> str:
+    """Returns 'recovery' if due_date is past or today, else 'reminder'."""
+    if not due_date_str:
+        return "reminder"
+        
+    ist_now = datetime.now(pytz.timezone('Asia/Kolkata'))
+    current_day = ist_now.day
+    
+    # Try parsing as a full date first
+    try:
+        due_date_obj = date_parser.parse(str(due_date_str), dayfirst=True)
+        if ist_now.date() >= due_date_obj.date():
+            return "recovery"
+        else:
+            return "reminder"
+    except Exception:
+        pass
+        
+    # Fallback to extracting day numbers (e.g., "15" or "15th")
+    nums = re.findall(r'\d+', str(due_date_str))
+    if nums and int(nums[0]) <= 31:
+        if current_day >= int(nums[0]):
+            return "recovery"
+        else:
+            return "reminder"
+            
+    return "reminder"
+
 def generate_hindi_text(
     name,
     bank_name,
@@ -357,10 +390,11 @@ def generate_hindi_text(
     total_loan,
     paid_loan,
     balance_loan,
+    call_type,
 ) -> str:
     """
     Build a natural Hindi loan-reminder message from structured fields.
-    All numeric amounts are converted to Rajasthani/Hindi word form.
+    Dynamically adjusts tone for Recovery vs Reminder based on call_type.
     """
     def _to_words(val) -> str:
         try:
@@ -372,27 +406,23 @@ def generate_hindi_text(
     due_str       = str(due_date).strip()  if due_date  else ""
     bank_str      = normalize_bank_name_for_tts(str(bank_name).strip())
     emi_words     = _to_words(emi_amount)
-    total_words   = _to_words(total_loan)
-    paid_words    = _to_words(paid_loan)
-    balance_words = _to_words(balance_loan)
-
-    msg_parts = [
-        f"नमस्ते {name_str} साहब।",
-        f"{bank_str} की तरफ से आपको सूचित किया जा रहा है।",
-        f"आपकी इस महीने की किश्त {emi_words} रुपये",
-    ]
-
-    if due_str:
-        msg_parts.append(f"{due_str} तक जमा करानी है।")
+    
+    if call_type == "recovery":
+        # Strict Recovery Tone
+        msg_parts = [
+            f"नमस्ते {name_str} जी।",
+            f"{bank_str} से यह रिकवरी कॉल है।",
+            f"आपकी {due_str} की {emi_words} रुपये की किश्त अभी तक पेंडिंग है।",
+            "कृपया इसे आज ही जमा कराएं, अन्यथा आपको पेनाल्टी लग सकती है। धन्यवाद।"
+        ]
     else:
-        msg_parts.append("जल्द से जल्द जमा करानी है।")
-
-    msg_parts += [
-        f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं",
-        f"और {balance_words} रुपये अभी बाकी हैं।",
-        "कृपया समय पर भुगतान करें।",
-        "धन्यवाद।",
-    ]
+        # Soft Reminder Tone
+        msg_parts = [
+            f"नमस्ते {name_str} जी।",
+            f"{bank_str} की तरफ से रिमाइंडर कॉल है।",
+            f"आपकी इस महीने की किश्त {emi_words} रुपये {due_str} को आने वाली है।",
+            "कृपया समय पर भुगतान करके अपना सिविल स्कोर बनाए रखें। धन्यवाद।"
+        ]
 
     return " ".join(msg_parts)
 

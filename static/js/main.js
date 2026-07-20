@@ -148,6 +148,11 @@ document.addEventListener('DOMContentLoaded', () => {
         <td>${escHtml(rec.bank_name)}</td>
         <td>${formatINR(rec.emi_amount)}</td>
         <td>${escHtml(rec.due_date)}</td>
+        <td>
+          <span class="badge ${rec.call_type === 'recovery' ? 'badge-failed' : 'badge-completed'}">
+            ${rec.call_type === 'recovery' ? 'Recovery' : 'Reminder'}
+          </span>
+        </td>
         <td>${formatINR(rec.balance_loan)}</td>
         <td><span class="badge badge-idle" id="badge-${idx}">idle</span></td>
         <td>
