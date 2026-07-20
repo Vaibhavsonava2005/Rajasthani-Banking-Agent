@@ -673,11 +673,14 @@ def upload():
         except ValueError as exc:
             logger.warning("Phone normalisation failed for '%s': %s", phone_raw, exc)
 
+        # Determine Call Type
+        call_type = determine_call_type(due_date)
+
         # Generate Hindi text
         try:
             hindi_text = generate_hindi_text(
                 name, bank_name, emi_amount, due_date,
-                total_loan, paid_loan, balance_loan,
+                total_loan, paid_loan, balance_loan, call_type
             )
         except Exception as exc:
             logger.warning("Hindi text generation error: %s", exc)
@@ -693,6 +696,7 @@ def upload():
             "total_loan":      total_loan,
             "paid_loan":       paid_loan,
             "balance_loan":    balance_loan,
+            "call_type":       call_type,
             "rajasthani_text": hindi_text,
         })
 
