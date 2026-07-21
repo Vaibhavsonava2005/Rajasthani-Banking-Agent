@@ -355,7 +355,7 @@ import pytz
 from dateutil import parser as date_parser
 
 def determine_call_type(due_date_str: str) -> str:
-    """Returns 'recovery' if due_date is past or today, else 'reminder'."""
+    """Returns 'recovery' if due_date is past (strictly before today), else 'reminder'."""
     if not due_date_str:
         return "reminder"
         
@@ -365,7 +365,9 @@ def determine_call_type(due_date_str: str) -> str:
     # Try parsing as a full date first
     try:
         due_date_obj = date_parser.parse(str(due_date_str), dayfirst=True)
-        if ist_now.date() >= due_date_obj.date():
+        # Deep AI Logic: Only mark as recovery if the current date is strictly GREATER THAN the due date.
+        # If it is today (==), it remains a reminder.
+        if ist_now.date() > due_date_obj.date():
             return "recovery"
         else:
             return "reminder"
@@ -375,7 +377,7 @@ def determine_call_type(due_date_str: str) -> str:
     # Fallback to extracting day numbers (e.g., "15" or "15th")
     nums = re.findall(r'\d+', str(due_date_str))
     if nums and int(nums[0]) <= 31:
-        if current_day >= int(nums[0]):
+        if current_day > int(nums[0]):
             return "recovery"
         else:
             return "reminder"
