@@ -719,45 +719,19 @@ def initiate_call():
     if not phone_number:
         return jsonify({"error": "Missing phone_number in request"}), 400
 
-    job_id = str(uuid.uuid4())
-    JOB_DB[job_id] = {
-        "status": "queued",
-        "plivo_sid": None,
-        "updated_at": time.time()
-    }
-    
-    # Enqueue background task
-    executor.submit(process_call_job, job_id, phone_number, hindi_text, request.host_url)
-    
-    return jsonify({"call_sid": job_id}), 200
-
-def process_call_job(job_id, phone_number, hindi_text, host_url):
-    import requests
-    import base64
-    import urllib.parse
-    
     try:
-        JOB_DB[job_id]["status"] = "initiated"
-        JOB_DB[job_id]["updated_at"] = time.time()
-        
-        logger.info("Worker job %s: Dialing Plivo instantly using Native Neural TTS...", job_id)
-        result = cm.initiate_call(phone_number, hindi_text, base_url=host_url, job_id=job_id)
+        logger.info("Dialing Plivo instantly using Native Neural TTS...")
+        result = cm.initiate_call(phone_number, hindi_text, base_url=request.host_url, job_id="")
         
         if "call_sid" in result:
-            JOB_DB[job_id]["plivo_sid"] = result["call_sid"]
-            JOB_DB[job_id]["status"] = "initiated"
+            actual_call_sid = result["call_sid"]
+            return jsonify({"call_sid": actual_call_sid}), 200
         else:
-            JOB_DB[job_id]["status"] = "failed"
+            return jsonify({"error": "Failed to initiate call via Plivo"}), 500
             
-        JOB_DB[job_id]["updated_at"] = time.time()
-        
     except Exception as e:
-        logger.error("Job %s failed: %s", job_id, e)
-        JOB_DB[job_id]["status"] = "failed"
-        JOB_DB[job_id]["updated_at"] = time.time()
-
-
-
+        logger.error("Call failed: %s", e)
+        return jsonify({"error": str(e)}), 500
 # ── GET /call-status ───────────────────────────────────
 @app.route("/call-status", methods=["GET"])
 def call_status_poll():
