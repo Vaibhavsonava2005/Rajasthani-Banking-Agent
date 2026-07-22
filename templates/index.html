@@ -5,207 +5,179 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Rajasthani Voice Pro - AI-powered automated Hindi/Rajasthani EMI voice reminder system for banks." />
   <title>Rajasthani Voice Pro - Smart Banking Automation</title>
-  
-  <!-- Inter Font for Enterprise Look -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="/static/css/style.css" />
 </head>
 <body>
 
+  <!-- Animated Background Blobs -->
+  <div class="blob blob-purple" aria-hidden="true"></div>
+  <div class="blob blob-pink" aria-hidden="true"></div>
+  <div class="blob blob-blue" aria-hidden="true"></div>
+
   <!-- Loading Overlay -->
   <div id="loadingOverlay" class="loading-overlay hidden">
     <div class="spinner-wrap">
       <div class="spinner"></div>
-      <p class="spinner-text" data-i18n="loading_text">Generating voices...</p>
+      <p class="spinner-text">Processing your file...</p>
     </div>
   </div>
 
   <!-- Toast Container -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
-  <div class="app-container">
-    
-    <!-- Sidebar -->
-    <aside class="app-sidebar">
-      <div class="sidebar-header">
-        <div class="sidebar-logo"><i class="fa-solid fa-microphone"></i></div>
-        <div class="sidebar-title">Rajasthani Voice <span style="color:var(--accent)">Pro</span></div>
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-icon"><i class="fa-solid fa-microphone-lines"></i></div>
+        <div class="brand-text">
+          <span class="brand-title">Rajasthani Voice <span class="accent">Pro</span></span>
+          <span class="brand-subtitle">Automated EMI Voice Reminder System</span>
+        </div>
       </div>
-      <nav class="sidebar-nav">
-        <a href="#" class="nav-item"><i class="fa-solid fa-chart-line"></i> <span data-i18n="nav_dashboard">Dashboard</span></a>
-        <a href="#" class="nav-item active"><i class="fa-solid fa-cloud-arrow-up"></i> <span data-i18n="nav_upload">Upload Data</span></a>
-        <a href="#" class="nav-item"><i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="nav_voice">Voice Generation</span></a>
-        <a href="#" class="nav-item"><i class="fa-solid fa-phone-volume"></i> <span data-i18n="nav_campaigns">Call Campaigns</span></a>
-        <a href="#" class="nav-item"><i class="fa-solid fa-file-invoice"></i> <span data-i18n="nav_reports">Reports</span></a>
-        <a href="#" class="nav-item"><i class="fa-solid fa-chart-pie"></i> <span data-i18n="nav_analytics">Analytics</span></a>
-        <div style="flex:1"></div>
-        <a href="#" class="nav-item"><i class="fa-solid fa-gear"></i> <span data-i18n="nav_settings">Settings</span></a>
-        <a href="#" class="nav-item"><i class="fa-regular fa-circle-question"></i> <span data-i18n="nav_support">Support</span></a>
-        <a href="#" class="nav-item" style="color:var(--danger)"><i class="fa-solid fa-arrow-right-from-bracket"></i> <span data-i18n="nav_logout">Logout</span></a>
+      <nav class="header-nav">
+        <button class="btn btn-glass btn-sm" id="langToggleBtn">
+          <i class="fa-solid fa-language"></i> <span id="langText">हिन्दी</span>
+        </button>
+        <div class="nav-pill"><i class="fa-solid fa-circle-dot pulse-dot"></i><span data-i18n="system_online">System Online</span></div>
+        <a href="#" class="btn btn-glass btn-sm hidden" id="exportBusyBtn">
+          <i class="fa-solid fa-file-csv"></i><span data-i18n="export_busy">Export Busy Users</span>
+        </a>
+        <a href="/download-sample" class="btn btn-glass btn-sm" id="downloadSampleBtn" download>
+          <i class="fa-solid fa-cloud-arrow-down"></i><span data-i18n="sample_csv">Sample CSV</span>
+        </a>
       </nav>
-    </aside>
+    </div>
+  </header>
 
-    <!-- Main Content -->
-    <main class="app-main">
-      
-      <!-- Top Header -->
-      <header class="app-header">
-        <div class="header-left">
-          <div class="header-title" data-i18n="header_title">Upload Customer Data</div>
-          <div class="header-subtitle" data-i18n="header_subtitle">Automated EMI Reminder Platform</div>
-        </div>
-        <div class="header-right">
-          <div class="system-status">
-            <div class="status-dot"></div> <span data-i18n="system_online">System Online</span>
+  <main class="main-content">
+
+    <!-- Stats Dashboard -->
+    <section class="stats-section hidden" id="statsSection">
+      <div class="stats-grid">
+        <div class="stat-card" id="statTotalRecords">
+          <div class="stat-icon icon-indigo"><i class="fa-solid fa-users"></i></div>
+          <div class="stat-body">
+            <span class="stat-value" id="statRecordsValue">0</span>
+            <span class="stat-label" data-i18n="total_records">Total Records</span>
           </div>
-          
-          <button class="btn btn-outline btn-sm" id="langToggleBtn">
-            <i class="fa-solid fa-language"></i> <span id="langText">हिन्दी</span>
-          </button>
-          
-          <a href="/download-sample" class="btn btn-outline btn-sm" id="downloadSampleBtn" download>
-            <i class="fa-solid fa-cloud-arrow-down"></i> <span data-i18n="sample_csv">Sample CSV</span>
-          </a>
-
-          <button class="icon-btn"><i class="fa-regular fa-bell"></i></button>
-          <div class="avatar">RV</div>
         </div>
-      </header>
-
-      <!-- Scrollable Content -->
-      <div class="content-scroll">
-        <div class="content-inner">
-
-          <!-- Upload Card -->
-          <section class="ent-card">
-            <div class="card-header-ent">
-              <span class="step-label" data-i18n="step_1">Step 1</span>
-              <h2 class="card-title-ent"><i class="fa-solid fa-folder-open" style="color:var(--text-3)"></i> <span data-i18n="upload_title">Upload Customer File</span></h2>
-              <p class="card-subtitle-ent" data-i18n="upload_desc">Upload Excel or CSV containing customer loan records. Required fields: Customer Name, Mobile Number, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Remaining Balance.</p>
-            </div>
-            
-            <form id="uploadForm" novalidate>
-              <div class="drop-zone" id="dropZone">
-                <input type="file" id="fileInput" name="file" accept=".csv,.xlsx,.xls" tabindex="-1" />
-                <div class="drop-content" id="dropZoneContent">
-                  <div class="cloud-icon-wrap"><i class="fa-solid fa-cloud-arrow-up"></i></div>
-                  <div class="drop-title" data-i18n="drop_primary">Drag & Drop your Excel or CSV here</div>
-                  <div style="font-size: 0.85rem; color: var(--text-3);" data-i18n="drop_or">or</div>
-                  <button type="button" class="btn btn-outline btn-sm" style="pointer-events: none;" data-i18n="browse_btn">Browse Files</button>
-                  <div class="drop-desc" style="margin-top:0.5rem" data-i18n="drop_secondary">Supported Formats: CSV, XLSX, XLS. Maximum size: 16 MB.</div>
-                </div>
-              </div>
-              <div id="statusMsg" class="status-msg hidden"></div>
-
-              <!-- Split Layout: Bank Filter & Summary Stats -->
-              <div class="split-grid">
-                
-                <!-- Left: Bank Filter -->
-                <div class="form-group">
-                  <label class="form-label" data-i18n="select_bank">Select Bank</label>
-                  <div class="input-with-icon">
-                    <i class="fa-solid fa-building-columns"></i>
-                    <select id="globalBankName" class="form-control">
-                      <option value="all" data-i18n="bank_all">Choose Bank (All Banks)</option>
-                      <option value="sbi">State Bank of India (SBI)</option>
-                      <option value="hdfc">HDFC Bank</option>
-                      <option value="icici">ICICI Bank</option>
-                      <option value="axis">Axis Bank</option>
-                      <option value="kotak">Kotak Mahindra Bank</option>
-                      <option value="pnb">Punjab National Bank (PNB)</option>
-                      <option value="bob">Bank of Baroda (BOB)</option>
-                      <option value="union">Union Bank of India</option>
-                      <option value="idfc">IDFC First Bank</option>
-                      <option value="indusind">IndusInd Bank</option>
-                      <option value="yes">Yes Bank</option>
-                      <option value="canara">Canara Bank</option>
-                      <option value="bajaj">Bajaj Finance</option>
-                      <option value="hero">Hero Fincorp</option>
-                      <option value="piramal">Piramal Finance</option>
-                    </select>
-                  </div>
-                </div>
-
-                <!-- Right: Stats -->
-                <div class="stats-mini-grid" id="statsSection">
-                  <div class="stat-mini">
-                    <div class="stat-mini-label" data-i18n="total_records">Total Customers</div>
-                    <div class="stat-mini-value" id="statRecordsValue">0</div>
-                  </div>
-                  <div class="stat-mini">
-                    <div class="stat-mini-label" data-i18n="total_loan">Total Loan</div>
-                    <div class="stat-mini-value" id="statLoanValue">₹0</div>
-                  </div>
-                  <div class="stat-mini">
-                    <div class="stat-mini-label" data-i18n="total_paid">Paid Loan</div>
-                    <div class="stat-mini-value" id="statPaidValue">₹0</div>
-                  </div>
-                  <div class="stat-mini">
-                    <div class="stat-mini-label" data-i18n="balance_due">Remaining Balance</div>
-                    <div class="stat-mini-value" id="statBalanceValue">₹0</div>
-                  </div>
-                </div>
-
-              </div>
-
-              <!-- Process Button CTA -->
-              <button type="submit" class="btn-premium" id="uploadBtn">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="process_btn">Generate AI Voice Messages</span>
-              </button>
-            </form>
-          </section>
-
-          <!-- Results Section -->
-          <section class="ent-card hidden" id="resultsSection">
-            <div class="table-header-flex">
-              <div>
-                <h2 class="card-title-ent" data-i18n="processed_records">Generated Voice Records</h2>
-                <p class="card-subtitle-ent" style="margin-bottom:0" data-i18n="processed_desc">Review and execute automated calls for eligible customers.</p>
-              </div>
-              <div class="results-actions">
-                <a href="#" class="btn btn-outline btn-sm hidden" id="exportBusyBtn">
-                  <i class="fa-solid fa-file-csv"></i> <span data-i18n="export_busy">Export Busy Users</span>
-                </a>
-                <button class="btn btn-danger btn-sm hidden" id="cancelBatchBtn">
-                  <i class="fa-solid fa-ban"></i> <span data-i18n="cancel_btn">Cancel Batch</span>
-                </button>
-                <button class="btn btn-success btn-sm hidden" id="callAllBtn">
-                  <i class="fa-solid fa-phone-volume"></i> <span data-i18n="call_all_btn">Call All Eligible</span>
-                </button>
-              </div>
-            </div>
-            
-            <div class="table-wrap">
-              <table class="ent-table" id="recordsTable">
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th data-i18n="th_name">Customer</th>
-                    <th data-i18n="th_phone">Phone</th>
-                    <th data-i18n="th_bank">Bank</th>
-                    <th data-i18n="th_emi">EMI</th>
-                    <th data-i18n="th_due_date">Due Date</th>
-                    <th data-i18n="th_call_type">Call Type</th>
-                    <th data-i18n="th_total_loan">Total Loan</th>
-                    <th data-i18n="th_paid_loan">Paid Loan</th>
-                    <th data-i18n="th_balance">Balance</th>
-                    <th data-i18n="th_status">Status</th>
-                    <th data-i18n="th_actions">Audio / Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="recordsBody"></tbody>
-              </table>
-            </div>
-          </section>
-
+        <div class="stat-card" id="statTotalLoan">
+          <div class="stat-icon icon-blue"><i class="fa-solid fa-landmark"></i></div>
+          <div class="stat-body">
+            <span class="stat-value" id="statLoanValue">₹0</span>
+            <span class="stat-label" data-i18n="total_loan">Total Loan</span>
+          </div>
+        </div>
+        <div class="stat-card" id="statPaid">
+          <div class="stat-icon icon-green"><i class="fa-solid fa-circle-check"></i></div>
+          <div class="stat-body">
+            <span class="stat-value" id="statPaidValue">₹0</span>
+            <span class="stat-label" data-i18n="total_paid">Total Paid</span>
+          </div>
+        </div>
+        <div class="stat-card" id="statBalance">
+          <div class="stat-icon icon-amber"><i class="fa-solid fa-hourglass-half"></i></div>
+          <div class="stat-body">
+            <span class="stat-value" id="statBalanceValue">₹0</span>
+            <span class="stat-label" data-i18n="balance_due">Balance Due</span>
+          </div>
         </div>
       </div>
-    </main>
-  </div>
+    </section>
+
+    <!-- Upload Card -->
+    <section class="upload-section">
+      <div class="glass-card upload-card">
+        <div class="card-header">
+          <h1 class="card-title" data-i18n="upload_title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload Loan Data</h1>
+          <p class="card-subtitle" data-i18n="upload_desc">Drag &amp; drop your CSV or Excel file. Required columns: Name, Phone, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Balance Loan.</p>
+        </div>
+        <form id="uploadForm" novalidate>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" name="file" accept=".csv,.xlsx,.xls" tabindex="-1" />
+            <div class="drop-zone-content" id="dropZoneContent">
+              <i class="fa-regular fa-file-excel drop-icon"></i>
+              <span class="drop-primary" data-i18n="drop_primary">Drag &amp; drop your file here</span>
+              <span class="drop-secondary" data-i18n="drop_secondary">CSV · XLSX · XLS — max 16 MB</span>
+              <button type="button" class="btn btn-primary btn-sm" style="margin-top: 1.25rem; pointer-events: none; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);" data-i18n="browse_btn">Browse Files</button>
+            </div>
+          </div>
+          <div id="statusMsg" class="status-msg hidden"></div>
+          <select id="globalBankName" class="form-control" style="cursor: pointer;">
+            <option value="all" data-i18n="bank_all">All Banks (No Filter)</option>
+            <option value="sbi">State Bank of India (SBI)</option>
+            <option value="hdfc">HDFC Bank</option>
+            <option value="icici">ICICI Bank</option>
+            <option value="axis">Axis Bank</option>
+            <option value="kotak">Kotak Mahindra Bank</option>
+            <option value="pnb">Punjab National Bank (PNB)</option>
+            <option value="bob">Bank of Baroda (BOB)</option>
+            <option value="union">Union Bank of India</option>
+            <option value="idfc">IDFC First Bank</option>
+            <option value="indusind">IndusInd Bank</option>
+            <option value="yes">Yes Bank</option>
+            <option value="canara">Canara Bank</option>
+            <option value="bajaj">Bajaj Finance</option>
+            <option value="hero">Hero Fincorp</option>
+            <option value="piramal">Piramal Finance</option>
+          </select>
+          <div class="upload-actions">
+            <button type="submit" class="btn btn-primary" id="uploadBtn">
+              <i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="process_btn">Process &amp; Generate Speech</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Results Section -->
+    <section class="results-section hidden" id="resultsSection">
+      <div class="glass-card results-card">
+        <div class="results-header">
+          <h2 class="card-title"><i class="fa-solid fa-table-list"></i> <span data-i18n="processed_records">Processed Records</span></h2>
+          <div class="results-actions">
+            <button class="btn btn-success hidden" id="callAllBtn">
+              <i class="fa-solid fa-phone-volume"></i> <span data-i18n="call_all_btn">Call All Eligible</span>
+            </button>
+            <button class="btn btn-danger hidden" id="cancelBatchBtn">
+              <i class="fa-solid fa-ban"></i> <span data-i18n="cancel_btn">Cancel Batch</span>
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table" id="recordsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th data-i18n="th_name">Name</th>
+                <th data-i18n="th_phone">Phone</th>
+                <th data-i18n="th_bank">Bank</th>
+                <th data-i18n="th_emi">EMI</th>
+                <th data-i18n="th_due_date">Due Date</th>
+                <th data-i18n="th_call_type">Call Type</th>
+                <th data-i18n="th_total_loan">Total Loan</th>
+                <th data-i18n="th_paid_loan">Paid Loan</th>
+                <th data-i18n="th_balance">Balance</th>
+                <th data-i18n="th_status">Status</th>
+                <th data-i18n="th_actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="recordsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="app-footer">
+    <p>Rajasthani Voice Pro &copy; 2025</p>
+  </footer>
 
   <script src="/static/js/main.js"></script>
 </body>
