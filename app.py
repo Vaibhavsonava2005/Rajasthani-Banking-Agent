@@ -40,10 +40,10 @@ app = Flask(
 )
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
-# ── Env / Config ────────────────────────────────────────────
-PLIVO_AUTH_ID = os.getenv("PLIVO_AUTH_ID", "")
-PLIVO_AUTH_TOKEN  = os.getenv("PLIVO_AUTH_TOKEN", "")
-PLIVO_CALLER_NUM  = os.getenv("PLIVO_CALLER_NUMBER", "")
+# ── Env / Config ────────────────────────────────────────────# Plivo API configuration
+_PLIVO_AUTH_ID = os.environ.get("PLIVO_AUTH_ID", "MAZGRJNDZHNWITYJLJMC")
+_PLIVO_AUTH_TOKEN = os.environ.get("PLIVO_AUTH_TOKEN", "ZmE2NGQyMTQtNDdmOS00OTg0LTQwZjAtMDdkMWYw")
+_PLIVO_CALLER_ID = os.environ.get("PLIVO_CALLER_NUMBER", "+918031449735")
 if os.getenv("VERCEL_URL"):
     PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL').strip()}"
 else:
@@ -423,11 +423,14 @@ def generate_hindi_text(
     paid_words    = _to_words(paid_loan)
     balance_words = _to_words(balance_loan)
     
+    import random
+    agent_name = random.choice(["नेहा", "लक्ष्मी", "स्नेहा", "साक्षी"])
+    
     if call_type == "recovery":
         # Strict Recovery Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"{bank_str} से यह रिकवरी कॉल है।",
+            f"मैं {agent_name} बोल रही हूँ, {bank_str} से। यह एक रिकवरी कॉल है।",
             f"आपकी {due_str} की {emi_words} रुपये की किश्त अभी तक पेंडिंग है।",
             f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
             "कृपया अपना बकाया आज ही जमा कराएं, अन्यथा आपको पेनाल्टी लग सकती है। धन्यवाद।"
@@ -436,7 +439,7 @@ def generate_hindi_text(
         # Soft Reminder Tone
         msg_parts = [
             f"नमस्ते {name_str} जी।",
-            f"आपका {bank_str} में स्वागत है। यह एक रिमाइंडर कॉल है।",
+            f"मैं {agent_name} बोल रही हूँ, आपका {bank_str} में स्वागत है। यह एक रिमाइंडर कॉल है।",
             f"आपकी इस महीने की किश्त {emi_words} रुपये {due_str} को आने वाली है।",
             f"आपके कुल लोन {total_words} रुपये में से {paid_words} रुपये जमा हो चुके हैं, और {balance_words} रुपये अभी बाकी हैं।",
             "कृपया समय पर भुगतान करके अपना सिविल स्कोर बनाए रखें। धन्यवाद।"
@@ -491,9 +494,9 @@ def _build_call_manager():
     missing  = []
     errors   = []
     
-    sid = os.getenv("PLIVO_AUTH_ID", "").strip()
-    token = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
-    caller = os.getenv("PLIVO_CALLER_NUMBER", "").strip()
+    sid = os.getenv("PLIVO_AUTH_ID", "MAZGRJNDZHNWITYJLJMC").strip()
+    token = os.getenv("PLIVO_AUTH_TOKEN", "ZmE2NGQyMTQtNDdmOS00OTg0LTQwZjAtMDdkMWYw").strip()
+    caller = os.getenv("PLIVO_CALLER_NUMBER", "+918031449735").strip()
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
     if not sid:      missing.append("PLIVO_AUTH_ID")
@@ -753,45 +756,52 @@ def process_call_job(job_id, phone_number, hindi_text, host_url):
         JOB_DB[job_id]["status"] = "failed"
         JOB_DB[job_id]["updated_at"] = time.time()
 
-@app.route("/plivo-cache-warm", methods=["GET", "POST"])
-def plivo_cache_warm():
-    """
-    Ultra Deep AI Logic:
-    Plivo servers are in the US. Vercel edge caches are regional.
-    When Plivo initiates the call, it hits this webhook from the US.
-    We instantly force this US-based server to fetch the audio, 
-    warming the local US cache BEFORE the user even picks up the phone!
-    """
-    b64_text = request.args.get("b64")
-    if b64_text:
-        try:
-            import requests
-            # Hit the audio endpoint. This executes Sarvam AI and caches it in this specific region!
-            # We block up to 10 seconds to ensure the cache is fully written before Plivo asks for it.
-            requests.get(f"{request.host_url}audio?b64={b64_text}", timeout=10)
-        except Exception as e:
-            logger.warning(f"Cache warm failed: {e}")
-    
-    return "OK", 200
+
 
 # ── GET /call-status ───────────────────────────────────
 @app.route("/call-status", methods=["GET"])
 def call_status_poll():
-    """Poll endpoint for the frontend to check real-time call state via JOB_DB."""
+    """Poll endpoint for the frontend to check real-time call state via JOB_DB or Plivo API (for Vercel)."""
     call_sid = request.args.get("sid")
     if not call_sid:
         return jsonify({"error": "Missing sid parameter"}), 400
         
+    local_status = "initiated"
     if call_sid in JOB_DB:
-        job = JOB_DB[call_sid]
-        return jsonify({
-            "call_sid": call_sid,
-            "status": job["status"],
-            "updated_at": job["updated_at"]
-        })
-        
-    # Fallback to initiated if unknown (so frontend doesn't crash)
-    return jsonify({"call_sid": call_sid, "status": "initiated", "updated_at": time.time()})
+        local_status = JOB_DB[call_sid]["status"]
+        if local_status not in ["initiated", "queued", "generating"]:
+            # If we successfully tracked it locally via webhook, return it instantly!
+            return jsonify({
+                "call_sid": call_sid,
+                "status": local_status,
+                "updated_at": JOB_DB[call_sid]["updated_at"]
+            })
+            
+    # For Vercel Serverless, JOB_DB might be empty or fragmented. 
+    # Fallback to querying Plivo API directly.
+    if cm:
+        import plivo
+        try:
+            client = plivo.RestClient(cm.account_sid, cm.auth_token)
+            # Try to get Call Detail Record (works if call is finished)
+            call = client.calls.get(call_sid)
+            status = call.call_state.lower()
+            if call_sid in JOB_DB:
+                JOB_DB[call_sid]["status"] = status
+            return jsonify({"call_sid": call_sid, "status": status})
+        except Exception as e:
+            if "not found" in str(e).lower():
+                try:
+                    # Try to get live call status (works if call is ringing/in-progress)
+                    live = client.calls.live_call_get(call_sid)
+                    status = live.call_status.lower()
+                    if call_sid in JOB_DB:
+                        JOB_DB[call_sid]["status"] = status
+                    return jsonify({"call_sid": call_sid, "status": status})
+                except Exception:
+                    pass
+
+    return jsonify({"call_sid": call_sid, "status": local_status, "updated_at": time.time()})
 
 @app.route("/plivo-callback", methods=["POST", "GET"])
 def plivo_callback():

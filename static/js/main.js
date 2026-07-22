@@ -5,6 +5,54 @@
 
 document.addEventListener('DOMContentLoaded', () => {
 
+  const i18n = {
+    'system_online': { en: 'System Online', hi: 'सिस्टम चालू है' },
+    'export_busy': { en: 'Export Busy Users', hi: 'बिज़ी यूज़र्स एक्सपोर्ट करें' },
+    'sample_csv': { en: 'Sample CSV', hi: 'सैंपल CSV' },
+    'total_records': { en: 'Total Records', hi: 'कुल रिकॉर्ड्स' },
+    'total_loan': { en: 'Total Loan', hi: 'कुल लोन' },
+    'total_paid': { en: 'Total Paid', hi: 'जमा राशि' },
+    'balance_due': { en: 'Balance Due', hi: 'बकाया राशि' },
+    'upload_title': { en: '<i class="fa-solid fa-cloud-arrow-up"></i> Upload Loan Data', hi: '<i class="fa-solid fa-cloud-arrow-up"></i> डेटा अपलोड करें' },
+    'upload_desc': { en: 'Drag & drop your CSV or Excel file. Required columns: Name, Phone, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Balance Loan.', hi: 'अपनी CSV या Excel फ़ाइल यहाँ छोड़ें। अनिवार्य कॉलम: नाम, फोन, बैंक का नाम, EMI राशि, देय तिथि, कुल लोन, जमा लोन, बकाया लोन।' },
+    'drop_primary': { en: 'Click to browse or drag & drop', hi: 'ब्राउज़ करने के लिए क्लिक करें या ड्रैग करें' },
+    'drop_secondary': { en: 'CSV · XLSX · XLS — max 16 MB', hi: 'CSV · XLSX · XLS — अधिकतम 16 MB' },
+    'bank_all': { en: 'All Banks (No Filter)', hi: 'सभी बैंक (कोई फ़िल्टर नहीं)' },
+    'process_btn': { en: 'Process & Generate Speech', hi: 'प्रोसेस करें' },
+    'processed_records': { en: 'Processed Records', hi: 'प्रोसेस्ड रिकॉर्ड्स' },
+    'call_all_btn': { en: 'Call All Eligible', hi: 'सभी को कॉल करें' },
+    'cancel_btn': { en: 'Cancel Batch', hi: 'कॉल रोकें' },
+    'th_name': { en: 'Name', hi: 'नाम' },
+    'th_phone': { en: 'Phone', hi: 'फ़ोन' },
+    'th_bank': { en: 'Bank', hi: 'बैंक' },
+    'th_emi': { en: 'EMI', hi: 'किश्त' },
+    'th_due_date': { en: 'Due Date', hi: 'तारीख' },
+    'th_call_type': { en: 'Call Type', hi: 'कॉल प्रकार' },
+    'th_total_loan': { en: 'Total Loan', hi: 'कुल लोन' },
+    'th_paid_loan': { en: 'Paid Loan', hi: 'जमा' },
+    'th_balance': { en: 'Balance', hi: 'बकाया' },
+    'th_status': { en: 'Status', hi: 'स्थिति' },
+    'th_actions': { en: 'Actions', hi: 'एक्शन' }
+  };
+
+  let currentLang = 'en';
+  
+  const langToggleBtn = document.getElementById('langToggleBtn');
+  const langText = document.getElementById('langText');
+  
+  if (langToggleBtn) {
+    langToggleBtn.addEventListener('click', () => {
+      currentLang = currentLang === 'en' ? 'hi' : 'en';
+      langText.textContent = currentLang === 'en' ? 'हिन्दी' : 'English';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18n[key] && i18n[key][currentLang]) {
+          el.innerHTML = i18n[key][currentLang];
+        }
+      });
+    });
+  }
+
   /* ── DOM Refs ─────────────────────────────────────────────── */
   const uploadForm    = document.getElementById('uploadForm');
   const fileInput     = document.getElementById('fileInput');
