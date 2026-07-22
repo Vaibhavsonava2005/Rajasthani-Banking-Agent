@@ -114,9 +114,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (json.call_configured) {
         callAllBtn.classList.remove('hidden');
-        showToast('Twilio calling is ready!', 'success');
+        document.getElementById('exportBusyBtn').classList.remove('hidden');
+        showToast('Plivo calling is ready!', 'success');
       } else {
-        showToast('Twilio not configured — speech only mode', 'warning');
+        showToast('Plivo not configured — speech only mode', 'warning');
       }
 
       resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -340,8 +341,8 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function setBadge(el, status) {
-    el.className = `badge badge-${status}`;
-    // Map Twilio raw statuses to beautiful UI text
+    el.className = `badge badge-${status.toLowerCase()}`;
+    // Map Plivo raw statuses to beautiful UI text
     const displayNames = {
       'queued': 'Queued',
       'initiated': 'Initiated',
@@ -351,11 +352,71 @@ document.addEventListener('DOMContentLoaded', () => {
       'busy': 'Busy (Cut)',
       'no-answer': 'No Answer',
       'canceled': 'Canceled',
-      'failed': 'Failed ❌',
-      'generating': 'Generating Audio ⚡'
+      'failed': 'Failed ❌'
     };
-    el.textContent = displayNames[status] || status;
+    el.textContent = displayNames[status.toLowerCase()] || status;
   }
+
+  function createBadge(status) {
+    const s = status.toLowerCase();
+    let badgeClass = 'badge-gray';
+    let icon = 'circle';
+    
+    if (s === 'completed' || s === 'answered') { badgeClass = 'badge-green'; icon = 'check-circle'; }
+    else if (s === 'in-progress') { badgeClass = 'badge-indigo'; icon = 'phone-volume'; }
+    else if (s === 'failed' || s === 'busy' || s === 'no-answer') { badgeClass = 'badge-red'; icon = 'circle-xmark'; }
+    else if (s === 'ringing' || s === 'queued' || s === 'initiated') { badgeClass = 'badge-yellow'; icon = 'spinner fa-spin'; }
+
+    return `<span class="badge ${badgeClass}"><i class="fa-solid fa-${icon}"></i>${status}</span>`;
+  }
+
+  /* ── Export Unanswered CSV ──────────────────────────────────── */
+  document.getElementById('exportBusyBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!processedData || processedData.length === 0) {
+      showToast("No data to export.", "warning");
+      return;
+    }
+    
+    // Filter users whose status indicates they didn't answer
+    const unanswered = processedData.filter(u => {
+      const s = (u.status || "").toLowerCase();
+      return s === "failed" || s === "busy" || s === "no-answer" || s === "canceled";
+    });
+    
+    if (unanswered.length === 0) {
+      showToast("No busy or unanswered users found!", "success");
+      return;
+    }
+    
+    // Convert to CSV
+    // Extract headers from the first object
+    const headers = Object.keys(unanswered[0]).filter(k => k !== 'status'); // Keep original headers, ignore our injected status if desired, or keep it. Let's keep all.
+    const csvRows = [];
+    csvRows.push(headers.join(",")); // Header row
+    
+    for (const row of unanswered) {
+      const values = headers.map(header => {
+        const val = row[header] ? String(row[header]) : "";
+        // Escape quotes and commas
+        return `"${val.replace(/"/g, '""')}"`;
+      });
+      csvRows.push(values.join(","));
+    }
+    
+    const csvString = csvRows.join("\n");
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unanswered_users_${new Date().getTime()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast(`Exported ${unanswered.length} unanswered records.`, "success");
+  });
 
   /* ── Call All (Frontend Batch Loop) ───────────────────────── */
   let cancelBatch = false;
@@ -388,8 +449,8 @@ document.addEventListener('DOMContentLoaded', () => {
       queued++;
       await window.callUser(i);
       
-      // Wait 3 seconds between calls to avoid rate limits
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Backend uses ThreadPoolExecutor to handle rate limits safely!
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     showToast(`📞 Batch finished — ${queued} calls processed`, 'success');
@@ -410,7 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res  = await fetch('/call-config-status');
       const json = await res.json();
       if (!json.configured) {
-        showToast('⚠️ Twilio not configured — calling disabled', 'warning');
+        showToast('⚠️ Plivo not configured — calling disabled', 'warning');
       }
     } catch { /* ignore */ }
   })();

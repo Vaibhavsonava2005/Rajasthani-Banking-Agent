@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Rajasthani Voice Pro - Production Flask Backend
-Twilio-powered Hindi/Rajasthani IVR voice-call system.
+Plivo-powered Hindi/Rajasthani IVR voice-call system.
 """
 
 # ─────────────────────────────────────────────────────────────
@@ -18,9 +18,10 @@ import uuid
 import pandas as pd
 from flask import Flask, render_template, send_file, jsonify, Response, request
 import requests
+from flask import Flask, render_template, send_file, jsonify, Response, request
+import requests
 from dotenv import load_dotenv
-
-# Load environment variables from .env file first
+from concurrent.futures import ThreadPoolExecutor
 load_dotenv()
 
 # ── Logging ────────────────────────────────────────────────
@@ -40,9 +41,9 @@ app = Flask(
 app.config["MAX_CONTENT_LENGTH"] = 16 * 1024 * 1024  # 16 MB
 
 # ── Env / Config ────────────────────────────────────────────
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", "")
-TWILIO_AUTH_TOKEN  = os.getenv("TWILIO_AUTH_TOKEN", "")
-TWILIO_CALLER_NUM  = os.getenv("TWILIO_CALLER_NUMBER", "")
+PLIVO_AUTH_ID = os.getenv("PLIVO_AUTH_ID", "")
+PLIVO_AUTH_TOKEN  = os.getenv("PLIVO_AUTH_TOKEN", "")
+PLIVO_CALLER_NUM  = os.getenv("PLIVO_CALLER_NUMBER", "")
 if os.getenv("VERCEL_URL"):
     PUBLIC_BASE_URL = f"https://{os.getenv('VERCEL_URL').strip()}"
 else:
@@ -105,7 +106,7 @@ def normalize_phone_number(raw: str) -> str:
 
 class CallManager:
     """
-    Wraps Twilio REST calls and tracks per-record call state.
+    Wraps Plivo REST calls and tracks per-record call state.
     """
 
     def __init__(
@@ -121,55 +122,64 @@ class CallManager:
         self.public_base_url = public_base_url.rstrip("/")
         
         logger.info(
-            "CallManager ready (Twilio, caller=%s, base_url=%s)",
+            "CallManager ready (Plivo, caller=%s, base_url=%s)",
             caller_number, public_base_url,
         )
 
     # ── public API ───────────────────────────────────────────
-    def initiate_call(self, phone_number: str, hindi_text: str = "", base_url: str = None) -> dict:
-        """Place an outbound call via Twilio."""
+    def initiate_call(self, phone_number: str, hindi_text: str = "", base_url: str = None, job_id: str = "") -> dict:
+        """Place an outbound call via Plivo."""
         import base64
         import urllib.parse
-        from twilio.rest import Client
+        import plivo
         
         # Base64 encode the text to avoid URL encoding issues
         b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
         
-        # Twilio webhook (Return TwiML with native Hindi TTS)
-        actual_base_url = (base_url or self.public_base_url).rstrip("/")
-        answer_url = f"{actual_base_url}/twiml?b64={b64_text}"
+        # Plivo webhook (Return PlivoXML with native Hindi TTS)
+        # Plivo requires a public URL, so ALWAYS use self.public_base_url (the ngrok URL)
+        actual_base_url = self.public_base_url.rstrip("/")
+        answer_url = f"{actual_base_url}/plivoxml?b64={b64_text}&job_id={job_id}"
+        callback_url = f"{actual_base_url}/plivo-callback?job_id={job_id}"
         
-        # Twilio requires E.164 format
         if not phone_number.startswith("+"):
             formatted_to = "+91" + phone_number if len(phone_number) == 10 else "+" + phone_number
         else:
             formatted_to = phone_number
             
-        logger.info(f"Calling Twilio to dial {formatted_to} with URL {answer_url}")
+        logger.info(f"Calling Plivo to dial {formatted_to} with URL {answer_url}")
         try:
-            client = Client(self.account_sid, self.auth_token)
-            call = client.calls.create(
-                to=formatted_to,
+            client = plivo.RestClient(self.account_sid, self.auth_token)
+            
+            # We removed the synchronous pre-warming here. 
+            # It will be handled asynchronously in the /call route to prevent UI blocking!
+
+            response = client.calls.create(
                 from_=self.caller_number,
-                url=answer_url,
-                status_callback=f"{actual_base_url}/twilio-cache-warm?b64={b64_text}",
-                status_callback_event=["initiated", "ringing"],
+                to_=formatted_to,
+                answer_url=answer_url,
+                answer_method='POST',
+                callback_url=callback_url,
+                callback_method='POST'
             )
-            logger.info("Call successfully initiated, SID: %s", call.sid)
-            return {"call_sid": call.sid}
+            
+            request_uuid = getattr(response, "request_uuid", getattr(response, "api_id", "unknown"))
+            logger.info("Call successfully initiated, Plivo ID: %s", request_uuid)
+            return {"call_sid": request_uuid}
+                
         except Exception as e:
-            logger.error(f"Twilio call failed: {e}")
+            logger.error(f"Plivo call failed: {e}")
             return {"error": str(e)}
 
     def get_status(self, call_sid: str) -> dict:
-        """Fetch real-time call status directly from Twilio API."""
-        from twilio.rest import Client
+        """Fetch real-time call status directly from Plivo API."""
+        import plivo
         try:
-            client = Client(self.account_sid, self.auth_token)
-            call = client.calls(call_sid).fetch()
+            client = plivo.RestClient(self.account_sid, self.auth_token)
+            call = client.calls.get(call_sid)
             return {
-                "call_sid": call.sid,
-                "status": call.status,
+                "call_sid": call_sid,
+                "status": call.get("call_state", "unknown") if hasattr(call, "get") else getattr(call, "call_state", "unknown"),
                 "updated_at": time.time()
             }
         except Exception as exc:
@@ -481,18 +491,18 @@ def _build_call_manager():
     missing  = []
     errors   = []
     
-    sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
-    token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
-    caller = os.getenv("TWILIO_CALLER_NUMBER", "").strip()
+    sid = os.getenv("PLIVO_AUTH_ID", "").strip()
+    token = os.getenv("PLIVO_AUTH_TOKEN", "").strip()
+    caller = os.getenv("PLIVO_CALLER_NUMBER", "").strip()
     base_url = os.getenv("PUBLIC_BASE_URL", "").strip()
 
-    if not sid:      missing.append("TWILIO_ACCOUNT_SID")
-    if not token:    missing.append("TWILIO_AUTH_TOKEN")
-    if not caller:   missing.append("TWILIO_CALLER_NUMBER")
+    if not sid:      missing.append("PLIVO_AUTH_ID")
+    if not token:    missing.append("PLIVO_AUTH_TOKEN")
+    if not caller:   missing.append("PLIVO_CALLER_NUMBER")
     if not base_url: missing.append("PUBLIC_BASE_URL")
 
     if missing:
-        errors.append(f"Missing Twilio credentials: {', '.join(missing)}")
+        errors.append(f"Missing Plivo credentials: {', '.join(missing)}")
         return None, errors
 
     try:
@@ -504,7 +514,7 @@ def _build_call_manager():
         )
         return mgr, []
     except Exception as exc:
-        logger.exception("Failed to build CallManager for Twilio")
+        logger.exception("Failed to build CallManager for Plivo")
         return None, [str(exc)]
 
 
@@ -520,83 +530,33 @@ cm, _cm_errors = _build_call_manager()
 def index():
     return render_template("index.html")
 
-@app.route("/twiml", methods=["GET", "POST"])
-def twilio_twiml():
-    import urllib.parse
-    b64_text = request.args.get("b64", "")
-    
-    base_url = request.host_url.rstrip("/")
-    audio_url = f"{base_url}/audio?b64={urllib.parse.quote(b64_text)}"
-    
-    # Use Twilio's Play tag to fetch the Sarvam AI audio statelessly.
-    xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Play>{audio_url}</Play>
-</Response>"""
-    return Response(xml_response, mimetype="application/xml")
-
-# ── GET /audio ───────────────────────────────────────────────
-@app.route("/audio", methods=["GET", "POST"])
-def serve_audio():
-    """Stateless audio endpoint. Calls Sarvam AI API and returns binary audio stream."""
+@app.route("/plivoxml", methods=["GET", "POST"])
+def plivo_xml():
     import base64
-    from sarvamai import SarvamAI
-    from io import BytesIO
-
-    b64_text = request.args.get("b64", "").strip()
-    if not b64_text:
-        return jsonify({"error": "Missing b64 text"}), 400
+    b64_text = request.args.get("b64", "")
+    job_id = request.args.get("job_id", "")
+    
+    # Instantly set job to in-progress when user picks up!
+    if job_id and job_id in JOB_DB:
+        JOB_DB[job_id]["status"] = "in-progress"
+        JOB_DB[job_id]["updated_at"] = time.time()
+        logger.info(f"User picked up! Job {job_id} is now in-progress")
 
     try:
         hindi_text = base64.urlsafe_b64decode(b64_text).decode("utf-8")
     except Exception:
-        return jsonify({"error": "Invalid base64 encoding"}), 400
+        hindi_text = "नमस्ते"
+    
+    # Plivo Native Neural Hindi TTS (Amazon Polly Aditi Neural)
+    xml_response = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="Polly.Aditi" language="hi-IN">{hindi_text}</Speak>
+</Response>"""
+    return Response(xml_response, mimetype="application/xml")
 
-    sarvam_key = os.getenv("SARVAM_API_KEY", "").strip()
-    if not sarvam_key:
-        logger.error("SARVAM_API_KEY is missing!")
-        return jsonify({"error": "Sarvam AI API Key not configured"}), 503
-
-    try:
-        logger.info("Generating Sarvam AI audio for text length: %d", len(hindi_text))
-        client = SarvamAI(api_subscription_key=sarvam_key)
-        
-        # Call Sarvam AI synchronously (typically <2s response)
-        response = client.text_to_speech.convert(
-            model="bulbul:v3",
-            text=hindi_text,
-            target_language_code="hi-IN",
-            speaker="ritu",
-            pace=1.0,
-            speech_sample_rate=22050,
-        )
-        
-        # response is an object with base64 encoded 'audios' array
-        # e.g., response.audios[0] contains the base64 string
-        if not response or not hasattr(response, 'audios') or not response.audios:
-            raise Exception("Invalid response from Sarvam AI")
-            
-        b64_audio = response.audios[0]
-        audio_bytes = base64.b64decode(b64_audio)
-        
-        # Send raw bytes directly as a WAV file
-        buffer = BytesIO(audio_bytes)
-        buffer.seek(0)
-        
-        res = send_file(
-            buffer,
-            mimetype="audio/wav",
-            as_attachment=False
-        )
-        
-        # CRITICAL: Tell Vercel CDN to cache this audio response for 1 hour
-        # This prevents duplicate Sarvam AI API charges and speeds up Twilio playback
-        res.headers["Cache-Control"] = "public, max-age=3600"
-        return res
-
-    except Exception as exc:
-        logger.exception("Sarvam AI TTS generation failed")
-        return jsonify({"error": f"Audio generation failed: {exc}"}), 502
+# Background Task Queue
+JOB_DB = {}
+executor = ThreadPoolExecutor(max_workers=5)
 
 # ── POST /upload ─────────────────────────────────────────────
 @app.route("/upload", methods=["POST"])
@@ -721,17 +681,17 @@ def upload():
 # ── GET /call-config-status ──────────────────────────────────
 @app.route("/call-config-status", methods=["GET"])
 def call_config_status():
-    """Return Twilio configuration health-check."""
+    """Return Plivo configuration health-check."""
     missing = list(_cm_errors) if _cm_errors and all(
-        e in ["TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN",
-               "TWILIO_CALLER_NUMBER", "PUBLIC_BASE_URL"] for e in _cm_errors
+        e in ["PLIVO_AUTH_ID", "PLIVO_AUTH_TOKEN",
+               "PLIVO_CALLER_NUMBER", "PUBLIC_BASE_URL"] for e in _cm_errors
     ) else []
 
     # Always re-check live env
     live_missing = []
-    if not os.getenv("TWILIO_ACCOUNT_SID", "").strip():  live_missing.append("TWILIO_ACCOUNT_SID")
-    if not os.getenv("TWILIO_AUTH_TOKEN", "").strip():   live_missing.append("TWILIO_AUTH_TOKEN")
-    if not os.getenv("TWILIO_CALLER_NUMBER", "").strip():live_missing.append("TWILIO_CALLER_NUMBER")
+    if not os.getenv("PLIVO_AUTH_ID", "").strip():  live_missing.append("PLIVO_AUTH_ID")
+    if not os.getenv("PLIVO_AUTH_TOKEN", "").strip():   live_missing.append("PLIVO_AUTH_TOKEN")
+    if not os.getenv("PLIVO_CALLER_NUMBER", "").strip():live_missing.append("PLIVO_CALLER_NUMBER")
     if not os.getenv("PUBLIC_BASE_URL", "").strip():     live_missing.append("PUBLIC_BASE_URL")
 
     return jsonify({
@@ -744,10 +704,10 @@ def call_config_status():
 # ── POST /call ───────────────────────────────────
 @app.route("/call", methods=["POST"])
 def initiate_call():
-    """Stateless Twilio Call Initialiser. Takes phone number and text in JSON."""
+    """Stateless Plivo Call Initialiser. Queues background task instantly."""
     if cm is None:
-        missing = _cm_errors if _cm_errors else ["Twilio credentials not configured"]
-        return jsonify({"error": "Twilio not configured", "missing": missing}), 503
+        missing = _cm_errors if _cm_errors else ["Plivo credentials not configured"]
+        return jsonify({"error": "Plivo not configured", "missing": missing}), 503
 
     req_data = request.get_json() or {}
     phone_number = req_data.get("phone_number")
@@ -756,37 +716,49 @@ def initiate_call():
     if not phone_number:
         return jsonify({"error": "Missing phone_number in request"}), 400
 
-    try:
-        # ULTRA DEEP AI CACHE PRE-WARM FOR TWILIO (US-EAST / IAD1)
-        # By forcing the Vercel edge node to fetch the audio right before dialing,
-        # we guarantee a 100% Cache HIT exactly when the user picks up the phone.
-        # This completely eliminates Sarvam AI generation latency when answering!
-        import requests
-        import base64
-        import urllib.parse
-        
-        b64_text = base64.urlsafe_b64encode(hindi_text.encode("utf-8")).decode("utf-8")
-        audio_url = f"{request.host_url}audio?b64={urllib.parse.quote(b64_text)}"
-        
-        try:
-            logger.info("Deep pre-warming Vercel CDN cache for audio URL before dialing...")
-            requests.get(audio_url, timeout=10)
-        except Exception as e:
-            logger.warning("Cache pre-warm failed: %s", e)
-            
-        # Use request.host_url so Vercel uses the vercel domain and local uses ngrok
-        result = cm.initiate_call(phone_number, hindi_text, base_url=request.host_url)
-        return jsonify(result), 200
-    except Exception as exc:
-        logger.exception("Twilio call failed to %s", phone_number)
-        return jsonify({"error": f"Twilio API error: {exc}"}), 502
+    job_id = str(uuid.uuid4())
+    JOB_DB[job_id] = {
+        "status": "queued",
+        "plivo_sid": None,
+        "updated_at": time.time()
+    }
+    
+    # Enqueue background task
+    executor.submit(process_call_job, job_id, phone_number, hindi_text, request.host_url)
+    
+    return jsonify({"call_sid": job_id}), 200
 
-@app.route("/twilio-cache-warm", methods=["POST"])
-def twilio_cache_warm():
+def process_call_job(job_id, phone_number, hindi_text, host_url):
+    import requests
+    import base64
+    import urllib.parse
+    
+    try:
+        JOB_DB[job_id]["status"] = "initiated"
+        JOB_DB[job_id]["updated_at"] = time.time()
+        
+        logger.info("Worker job %s: Dialing Plivo instantly using Native Neural TTS...", job_id)
+        result = cm.initiate_call(phone_number, hindi_text, base_url=host_url, job_id=job_id)
+        
+        if "call_sid" in result:
+            JOB_DB[job_id]["plivo_sid"] = result["call_sid"]
+            JOB_DB[job_id]["status"] = "initiated"
+        else:
+            JOB_DB[job_id]["status"] = "failed"
+            
+        JOB_DB[job_id]["updated_at"] = time.time()
+        
+    except Exception as e:
+        logger.error("Job %s failed: %s", job_id, e)
+        JOB_DB[job_id]["status"] = "failed"
+        JOB_DB[job_id]["updated_at"] = time.time()
+
+@app.route("/plivo-cache-warm", methods=["GET", "POST"])
+def plivo_cache_warm():
     """
     Ultra Deep AI Logic:
-    Twilio servers are in the US. Vercel edge caches are regional.
-    When Twilio initiates the call, it hits this webhook from the US.
+    Plivo servers are in the US. Vercel edge caches are regional.
+    When Plivo initiates the call, it hits this webhook from the US.
     We instantly force this US-based server to fetch the audio, 
     warming the local US cache BEFORE the user even picks up the phone!
     """
@@ -795,7 +767,7 @@ def twilio_cache_warm():
         try:
             import requests
             # Hit the audio endpoint. This executes Sarvam AI and caches it in this specific region!
-            # We block up to 10 seconds to ensure the cache is fully written before Twilio asks for it.
+            # We block up to 10 seconds to ensure the cache is fully written before Plivo asks for it.
             requests.get(f"{request.host_url}audio?b64={b64_text}", timeout=10)
         except Exception as e:
             logger.warning(f"Cache warm failed: {e}")
@@ -805,16 +777,33 @@ def twilio_cache_warm():
 # ── GET /call-status ───────────────────────────────────
 @app.route("/call-status", methods=["GET"])
 def call_status_poll():
-    """Poll endpoint for the frontend to check real-time call state via Twilio API."""
+    """Poll endpoint for the frontend to check real-time call state via JOB_DB."""
     call_sid = request.args.get("sid")
     if not call_sid:
         return jsonify({"error": "Missing sid parameter"}), 400
         
-    if cm is None:
-        return jsonify({"error": "Twilio not configured"}), 503
+    if call_sid in JOB_DB:
+        job = JOB_DB[call_sid]
+        return jsonify({
+            "call_sid": call_sid,
+            "status": job["status"],
+            "updated_at": job["updated_at"]
+        })
         
-    state = cm.get_status(call_sid)
-    return jsonify(state)
+    # Fallback to initiated if unknown (so frontend doesn't crash)
+    return jsonify({"call_sid": call_sid, "status": "initiated", "updated_at": time.time()})
+
+@app.route("/plivo-callback", methods=["POST", "GET"])
+def plivo_callback():
+    """Ultra-efficient zero-latency webhook for Plivo status updates!"""
+    job_id = request.args.get("job_id")
+    if job_id and job_id in JOB_DB:
+        status = request.form.get("CallStatus") or request.args.get("CallStatus")
+        if status:
+            JOB_DB[job_id]["status"] = status.lower()
+            JOB_DB[job_id]["updated_at"] = time.time()
+            logger.info("Real-time Webhook Update: Job %s is now %s", job_id, status)
+    return "OK", 200
 
 
 # (Batch routes removed for fully client-side execution)
@@ -866,5 +855,5 @@ def internal_error(exc):
 # ─────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     logger.info("Starting Rajasthani Voice Pro on http://0.0.0.0:5000")
-    logger.info("Twilio configured: %s", cm is not None)
+    logger.info("Plivo configured: %s", cm is not None)
     app.run(debug=False, host="0.0.0.0", port=5000)
