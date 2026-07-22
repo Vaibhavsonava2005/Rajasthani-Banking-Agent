@@ -822,17 +822,17 @@ def plivo_callback():
 # ── GET /download-sample ─────────────────────────────────────
 @app.route("/download-sample", methods=["GET"])
 def download_sample():
-    """Serve the bundled sample_data.xlsx for users to download."""
+    """Serve the bundled sample_data.csv for users to download."""
     sample_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)), "sample_data.xlsx"
+        os.path.dirname(os.path.abspath(__file__)), "sample_data.csv"
     )
     if not os.path.exists(sample_path):
         return jsonify({"error": "Sample file not found on server"}), 404
     return send_file(
         sample_path,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimetype="text/csv",
         as_attachment=True,
-        download_name="sample_data.xlsx",
+        download_name="sample_data.csv",
     )
 
 

@@ -1,4 +1,25 @@
-Name,Loan Amount,Total Amount,Remaining Amount
-John Doe,5000,6000,1000
-Jane Smith,10000,12000,2000
-Alice Johnson,7500,8500,1000
+Name,Bank Name,EMI Amount,Due Date,Total Loan,Paid Loan,Balance Loan,Phone
+Aarav Sharma,Union Bank,14666,12 of every month,641921,172609,469312,9399629465
+Priya Verma,Union Bank,15360,19 of every month,875248,713777,161471,9847337905
+Rohan Singh,Union Bank,37771,02 of every month,994446,784577,209869,9148442433
+Neha Gupta,Bank of Baroda,7008,12 of every month,464283,357646,106637,9218937828
+Aditya Mehta,Punjab National Bank,34795,12 of every month,939246,299483,639763,9523894909
+Sneha Patel,State Bank of India,31050,02 of every month,369976,129211,240765,9365652096
+Rahul Yadav,ICICI Bank,7009,01 of every month,1051026,34521,1016505,9818259269
+Ananya Jain,Canara Bank,41791,11 of every month,559955,392151,167804,9327069506
+Karan Joshi,Axis Bank,7085,14 of every month,561253,351147,210106,9392565837
+Pooja Kumar,Kotak Mahindra,34994,23 of every month,847002,454349,392653,9287414024
+Vikram Das,Kotak Mahindra,33325,14 of every month,383859,288211,95648,9688437270
+Isha Kapoor,Union Bank,9734,11 of every month,752294,15180,737114,9482038004
+Mohit Saini,State Bank of India,36732,12 of every month,294111,21744,272367,9997112729
+Ritika Arora,ICICI Bank,18277,03 of every month,866370,63718,802652,9550701985
+Nikhil Mishra,State Bank of India,21516,16 of every month,1496832,996806,500026,9995660128
+Simran Kaur,HDFC Bank,33049,11 of every month,599369,481844,117525,9272020043
+Arjun Rao,Canara Bank,25414,12 of every month,829021,277207,551814,9667888876
+Kavya Nair,Punjab National Bank,29797,15 of every month,1497778,841817,655961,9385111909
+Deepak Sharma,Canara Bank,24651,21 of every month,384930,344929,40001,9523583441
+Meera Joshi,State Bank of India,13629,01 of every month,1489085,586396,902689,9475685350
+Bhavesh,Kotak,45455,23 of every month,147288,367367,376333,7742915405
+vaibhav,Indusind Bank,3873837,har mahine,465674,48784,87484,8619287241
+devang,Kotak Mahindra,762767,har mahine,76763,6763,63863,9772889266
+yogendra,Kotak Mahindra,736763,har mahine,76736,3673,4844,9414291932
