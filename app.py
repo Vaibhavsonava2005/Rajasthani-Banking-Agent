@@ -816,9 +816,40 @@ def plivo_callback():
     return "OK", 200
 
 
+# ── GET /audio ────────────────────────────────────────────────
+@app.route("/audio", methods=["GET"])
+def preview_audio():
+    """Serve a preview of the generated Hindi speech using gTTS."""
+    import base64
+    import io
+    from gtts import gTTS
+
+    b64_str = request.args.get("b64")
+    if not b64_str:
+        return jsonify({"error": "Missing b64 query parameter"}), 400
+
+    try:
+        # Standardize base64 for decoding
+        b64_standard = b64_str.replace("-", "+").replace("_", "/")
+        padding = len(b64_standard) % 4
+        if padding:
+            b64_standard += "=" * (4 - padding)
+
+        text = base64.b64decode(b64_standard).decode("utf-8")
+        
+        # Generate MP3 preview using gTTS
+        tts = gTTS(text=text, lang='hi')
+        audio_fp = io.BytesIO()
+        tts.write_to_fp(audio_fp)
+        audio_fp.seek(0)
+        
+        return send_file(audio_fp, mimetype="audio/mpeg")
+    except Exception as e:
+        logger.error(f"Error in preview_audio: {e}")
+        return jsonify({"error": "Failed to generate preview audio"}), 500
+
+
 # (Batch routes removed for fully client-side execution)
-
-
 # ── GET /download-sample ─────────────────────────────────────
 @app.route("/download-sample", methods=["GET"])
 def download_sample():
