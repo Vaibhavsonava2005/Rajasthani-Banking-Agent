@@ -5,6 +5,55 @@
 
 document.addEventListener('DOMContentLoaded', () => {
 
+  const i18n = {
+    'system_online': { en: 'System Online', hi: 'सिस्टम चालू है' },
+    'export_busy': { en: 'Export Busy Users', hi: 'बिज़ी यूज़र्स एक्सपोर्ट करें' },
+    'sample_csv': { en: 'Sample CSV', hi: 'सैंपल CSV' },
+    'total_records': { en: 'Total Records', hi: 'कुल रिकॉर्ड्स' },
+    'total_loan': { en: 'Total Loan', hi: 'कुल लोन' },
+    'total_paid': { en: 'Total Paid', hi: 'जमा राशि' },
+    'balance_due': { en: 'Balance Due', hi: 'बकाया राशि' },
+    'upload_title': { en: '<i class="fa-solid fa-cloud-arrow-up"></i> Upload Loan Data', hi: '<i class="fa-solid fa-cloud-arrow-up"></i> डेटा अपलोड करें' },
+    'upload_desc': { en: 'Drag & drop your CSV or Excel file. Required columns: Name, Phone, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Balance Loan.', hi: 'अपनी CSV या Excel फ़ाइल यहाँ छोड़ें। अनिवार्य कॉलम: नाम, फोन, बैंक का नाम, EMI राशि, देय तिथि, कुल लोन, जमा लोन, बकाया लोन।' },
+    'drop_primary': { en: 'Drag & drop your file here', hi: 'अपनी फ़ाइल यहाँ छोड़ें' },
+    'browse_btn': { en: 'Browse Files', hi: 'फ़ाइल चुनें' },
+    'drop_secondary': { en: 'CSV · XLSX · XLS — max 16 MB', hi: 'CSV · XLSX · XLS — अधिकतम 16 MB' },
+    'bank_all': { en: 'All Banks (No Filter)', hi: 'सभी बैंक (कोई फ़िल्टर नहीं)' },
+    'process_btn': { en: 'Process & Generate Speech', hi: 'प्रोसेस करें' },
+    'processed_records': { en: 'Processed Records', hi: 'प्रोसेस्ड रिकॉर्ड्स' },
+    'call_all_btn': { en: 'Call All Eligible', hi: 'सभी को कॉल करें' },
+    'cancel_btn': { en: 'Cancel Batch', hi: 'कॉल रोकें' },
+    'th_name': { en: 'Name', hi: 'नाम' },
+    'th_phone': { en: 'Phone', hi: 'फ़ोन' },
+    'th_bank': { en: 'Bank', hi: 'बैंक' },
+    'th_emi': { en: 'EMI', hi: 'किश्त' },
+    'th_due_date': { en: 'Due Date', hi: 'तारीख' },
+    'th_call_type': { en: 'Call Type', hi: 'कॉल प्रकार' },
+    'th_total_loan': { en: 'Total Loan', hi: 'कुल लोन' },
+    'th_paid_loan': { en: 'Paid Loan', hi: 'जमा' },
+    'th_balance': { en: 'Balance', hi: 'बकाया' },
+    'th_status': { en: 'Status', hi: 'स्थिति' },
+    'th_actions': { en: 'Actions', hi: 'एक्शन' }
+  };
+
+  let currentLang = 'en';
+  
+  const langToggleBtn = document.getElementById('langToggleBtn');
+  const langText = document.getElementById('langText');
+  
+  if (langToggleBtn) {
+    langToggleBtn.addEventListener('click', () => {
+      currentLang = currentLang === 'en' ? 'hi' : 'en';
+      langText.textContent = currentLang === 'en' ? 'हिन्दी' : 'English';
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (i18n[key] && i18n[key][currentLang]) {
+          el.innerHTML = i18n[key][currentLang];
+        }
+      });
+    });
+  }
+
   /* ── DOM Refs ─────────────────────────────────────────────── */
   const uploadForm    = document.getElementById('uploadForm');
   const fileInput     = document.getElementById('fileInput');
@@ -114,9 +163,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (json.call_configured) {
         callAllBtn.classList.remove('hidden');
-        showToast('Twilio calling is ready!', 'success');
+        document.getElementById('exportBusyBtn').classList.remove('hidden');
+        showToast('Plivo calling is ready!', 'success');
       } else {
-        showToast('Twilio not configured — speech only mode', 'warning');
+        showToast('Plivo not configured — speech only mode', 'warning');
       }
 
       resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -306,11 +356,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pollIntervals[idx]) clearInterval(pollIntervals[idx]);
     
     const sid = processedData[idx].call_sid;
+    const phone = processedData[idx].phone || processedData[idx].phone_number;
     if (!sid) return;
 
+    // Ultra-scalable 8-second polling to prevent Plivo API Rate Limits during 500+ batch calls
     pollIntervals[idx] = setInterval(async () => {
       try {
-        const res  = await fetch(`/call-status?sid=${sid}`);
+        const res  = await fetch(`/call-status?sid=${sid}&phone=${encodeURIComponent(phone || '')}`);
         if (!res.ok) return;
         const data = await res.json();
         
@@ -335,27 +387,91 @@ document.addEventListener('DOMContentLoaded', () => {
           // Store status in data for reliable batch resuming
           if (processedData[idx]) processedData[idx].status = data.status;
         }
-      } catch { /* silently ignore poll errors */ }
-    }, 2000);
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 8000);
   }
 
   function setBadge(el, status) {
-    el.className = `badge badge-${status}`;
-    // Map Twilio raw statuses to beautiful UI text
+    const s = status.toLowerCase();
+    let badgeClass = 'badge-gray';
+    let icon = 'circle';
+    if (s === 'completed' || s === 'answered') { badgeClass = 'badge-green'; icon = 'check-circle'; }
+    else if (s === 'in-progress') { badgeClass = 'badge-indigo'; icon = 'phone-volume fa-beat-fade'; }
+    else if (s === 'failed' || s === 'busy' || s === 'no-answer' || s === 'canceled') { badgeClass = 'badge-red'; icon = 'circle-xmark'; }
+    else if (s === 'ringing' || s === 'queued' || s === 'initiated') { badgeClass = 'badge-yellow'; icon = 'spinner fa-spin'; }
+
     const displayNames = {
-      'queued': 'Queued',
-      'initiated': 'Initiated',
-      'ringing': 'Ringing...',
-      'in-progress': 'In Progress 🔊',
-      'completed': 'Completed ✓',
-      'busy': 'Busy (Cut)',
-      'no-answer': 'No Answer',
-      'canceled': 'Canceled',
-      'failed': 'Failed ❌',
-      'generating': 'Generating Audio ⚡'
+      'queued': 'Queued', 'initiated': 'Initiated', 'ringing': 'Ringing...',
+      'in-progress': 'In Progress', 'completed': 'Completed', 'busy': 'Busy',
+      'no-answer': 'No Answer', 'canceled': 'Canceled', 'failed': 'Failed'
     };
-    el.textContent = displayNames[status] || status;
+    
+    el.className = `badge ${badgeClass}`;
+    el.innerHTML = `<i class="fa-solid fa-${icon}"></i> ${displayNames[s] || status}`;
   }
+
+  function createBadge(status) {
+    const s = status.toLowerCase();
+    let badgeClass = 'badge-gray';
+    let icon = 'circle';
+    
+    if (s === 'completed' || s === 'answered') { badgeClass = 'badge-green'; icon = 'check-circle'; }
+    else if (s === 'in-progress') { badgeClass = 'badge-indigo'; icon = 'phone-volume'; }
+    else if (s === 'failed' || s === 'busy' || s === 'no-answer') { badgeClass = 'badge-red'; icon = 'circle-xmark'; }
+    else if (s === 'ringing' || s === 'queued' || s === 'initiated') { badgeClass = 'badge-yellow'; icon = 'spinner fa-spin'; }
+
+    return `<span class="badge ${badgeClass}"><i class="fa-solid fa-${icon}"></i>${status}</span>`;
+  }
+
+  /* ── Export Unanswered CSV ──────────────────────────────────── */
+  document.getElementById('exportBusyBtn').addEventListener('click', (e) => {
+    e.preventDefault();
+    if (!processedData || processedData.length === 0) {
+      showToast("No data to export.", "warning");
+      return;
+    }
+    
+    // Filter users whose status indicates they didn't answer
+    const unanswered = processedData.filter(u => {
+      const s = (u.status || "").toLowerCase();
+      return s === "failed" || s === "busy" || s === "no-answer" || s === "canceled";
+    });
+    
+    if (unanswered.length === 0) {
+      showToast("No busy or unanswered users found!", "success");
+      return;
+    }
+    
+    // Convert to CSV
+    // Extract headers from the first object
+    const headers = Object.keys(unanswered[0]).filter(k => k !== 'status'); // Keep original headers, ignore our injected status if desired, or keep it. Let's keep all.
+    const csvRows = [];
+    csvRows.push(headers.join(",")); // Header row
+    
+    for (const row of unanswered) {
+      const values = headers.map(header => {
+        const val = row[header] ? String(row[header]) : "";
+        // Escape quotes and commas
+        return `"${val.replace(/"/g, '""')}"`;
+      });
+      csvRows.push(values.join(","));
+    }
+    
+    const csvString = csvRows.join("\n");
+    const blob = new Blob([csvString], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `unanswered_users_${new Date().getTime()}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    showToast(`Exported ${unanswered.length} unanswered records.`, "success");
+  });
 
   /* ── Call All (Frontend Batch Loop) ───────────────────────── */
   let cancelBatch = false;
@@ -388,8 +504,8 @@ document.addEventListener('DOMContentLoaded', () => {
       queued++;
       await window.callUser(i);
       
-      // Wait 3 seconds between calls to avoid rate limits
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Backend uses ThreadPoolExecutor to handle rate limits safely!
+      await new Promise(resolve => setTimeout(resolve, 50));
     }
     
     showToast(`📞 Batch finished — ${queued} calls processed`, 'success');
@@ -410,7 +526,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res  = await fetch('/call-config-status');
       const json = await res.json();
       if (!json.configured) {
-        showToast('⚠️ Twilio not configured — calling disabled', 'warning');
+        showToast('⚠️ Plivo not configured — calling disabled', 'warning');
       }
     } catch { /* ignore */ }
   })();

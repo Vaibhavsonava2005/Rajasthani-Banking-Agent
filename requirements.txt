@@ -4,8 +4,7 @@ pandas==2.1.4
 openpyxl==3.1.2
 python-dotenv==1.0.0
 gunicorn==21.2.0
-twilio
+plivo==4.53.0
 gTTS
-sarvamai
 pytz
 python-dateutil

@@ -40,9 +40,15 @@
         </div>
       </div>
       <nav class="header-nav">
-        <div class="nav-pill"><i class="fa-solid fa-circle-dot pulse-dot"></i><span>System Online</span></div>
+        <button class="btn btn-glass btn-sm" id="langToggleBtn">
+          <i class="fa-solid fa-language"></i> <span id="langText">हिन्दी</span>
+        </button>
+        <div class="nav-pill"><i class="fa-solid fa-circle-dot pulse-dot"></i><span data-i18n="system_online">System Online</span></div>
+        <a href="#" class="btn btn-glass btn-sm hidden" id="exportBusyBtn">
+          <i class="fa-solid fa-file-csv"></i><span data-i18n="export_busy">Export Busy Users</span>
+        </a>
         <a href="/download-sample" class="btn btn-glass btn-sm" id="downloadSampleBtn" download>
-          <i class="fa-solid fa-cloud-arrow-down"></i><span>Sample CSV</span>
+          <i class="fa-solid fa-cloud-arrow-down"></i><span data-i18n="sample_csv">Sample CSV</span>
         </a>
       </nav>
     </div>
@@ -57,28 +63,28 @@
           <div class="stat-icon icon-indigo"><i class="fa-solid fa-users"></i></div>
           <div class="stat-body">
             <span class="stat-value" id="statRecordsValue">0</span>
-            <span class="stat-label">Total Records</span>
+            <span class="stat-label" data-i18n="total_records">Total Records</span>
           </div>
         </div>
         <div class="stat-card" id="statTotalLoan">
           <div class="stat-icon icon-blue"><i class="fa-solid fa-landmark"></i></div>
           <div class="stat-body">
             <span class="stat-value" id="statLoanValue">₹0</span>
-            <span class="stat-label">Total Loan</span>
+            <span class="stat-label" data-i18n="total_loan">Total Loan</span>
           </div>
         </div>
         <div class="stat-card" id="statPaid">
           <div class="stat-icon icon-green"><i class="fa-solid fa-circle-check"></i></div>
           <div class="stat-body">
             <span class="stat-value" id="statPaidValue">₹0</span>
-            <span class="stat-label">Total Paid</span>
+            <span class="stat-label" data-i18n="total_paid">Total Paid</span>
           </div>
         </div>
         <div class="stat-card" id="statBalance">
           <div class="stat-icon icon-amber"><i class="fa-solid fa-hourglass-half"></i></div>
           <div class="stat-body">
             <span class="stat-value" id="statBalanceValue">₹0</span>
-            <span class="stat-label">Balance Due</span>
+            <span class="stat-label" data-i18n="balance_due">Balance Due</span>
           </div>
         </div>
       </div>
@@ -88,22 +94,25 @@
     <section class="upload-section">
       <div class="glass-card upload-card">
         <div class="card-header">
-          <h1 class="card-title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload Loan Data</h1>
-          <p class="card-subtitle">Drag &amp; drop your CSV or Excel file. Required columns: Name, Phone, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Balance Loan.</p>
+          <h1 class="card-title" data-i18n="upload_title"><i class="fa-solid fa-cloud-arrow-up"></i> Upload Loan Data</h1>
+          <p class="card-subtitle" data-i18n="upload_desc">Drag &amp; drop your CSV or Excel file. Required columns: Name, Phone, Bank Name, EMI Amount, Due Date, Total Loan, Paid Loan, Balance Loan.</p>
         </div>
         <form id="uploadForm" novalidate>
           <div class="drop-zone" id="dropZone">
             <input type="file" id="fileInput" name="file" accept=".csv,.xlsx,.xls" tabindex="-1" />
             <div class="drop-zone-content" id="dropZoneContent">
-              <i class="fa-regular fa-file-excel drop-icon"></i>
-              <span class="drop-primary">Click to browse or drag &amp; drop</span>
-              <span class="drop-secondary">CSV · XLSX · XLS — max 16 MB</span>
+              <i class="fa-solid fa-cloud-arrow-up drop-icon"></i>
+              <span class="drop-primary" data-i18n="drop_primary">Drag &amp; drop your file here</span>
+              <span class="drop-secondary" data-i18n="drop_secondary">CSV · XLSX · XLS — max 16 MB</span>
+              <button type="button" class="btn btn-primary btn-sm btn-pulse" style="margin-top: 1.25rem; pointer-events: none; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.15);" data-i18n="browse_btn">Browse Files</button>
             </div>
           </div>
           <div id="statusMsg" class="status-msg hidden"></div>
           <select id="globalBankName" class="form-control" style="cursor: pointer;">
-            <option value="all">All Banks (No Filter)</option>
+            <option value="all" data-i18n="bank_all">All Banks (No Filter)</option>
             <option value="sbi">State Bank of India (SBI)</option>
+            <option value="au_small_finance">AU Small Finance Bank</option>
+            <option value="rajasthan_grameen">Rajasthan Grameen Bank</option>
             <option value="hdfc">HDFC Bank</option>
             <option value="icici">ICICI Bank</option>
             <option value="axis">Axis Bank</option>
@@ -121,7 +130,7 @@
           </select>
           <div class="upload-actions">
             <button type="submit" class="btn btn-primary" id="uploadBtn">
-              <i class="fa-solid fa-wand-magic-sparkles"></i> Process &amp; Generate Speech
+              <i class="fa-solid fa-wand-magic-sparkles"></i> <span data-i18n="process_btn">Process &amp; Generate Speech</span>
             </button>
           </div>
         </form>
@@ -132,13 +141,13 @@
     <section class="results-section hidden" id="resultsSection">
       <div class="glass-card results-card">
         <div class="results-header">
-          <h2 class="card-title"><i class="fa-solid fa-table-list"></i> Processed Records</h2>
+          <h2 class="card-title"><i class="fa-solid fa-table-list"></i> <span data-i18n="processed_records">Processed Records</span></h2>
           <div class="results-actions">
             <button class="btn btn-success hidden" id="callAllBtn">
-              <i class="fa-solid fa-phone-volume"></i> Call All Eligible
+              <i class="fa-solid fa-phone-volume"></i> <span data-i18n="call_all_btn">Call All Eligible</span>
             </button>
             <button class="btn btn-danger hidden" id="cancelBatchBtn">
-              <i class="fa-solid fa-ban"></i> Cancel Batch
+              <i class="fa-solid fa-ban"></i> <span data-i18n="cancel_btn">Cancel Batch</span>
             </button>
           </div>
         </div>
@@ -147,17 +156,17 @@
             <thead>
               <tr>
                 <th>#</th>
-                <th>Name</th>
-                <th>Phone</th>
-                <th>Bank</th>
-                <th>EMI</th>
-                <th>Due Date</th>
-                <th>Call Type</th>
-                <th>Total Loan</th>
-                <th>Paid Loan</th>
-                <th>Balance</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th data-i18n="th_name">Name</th>
+                <th data-i18n="th_phone">Phone</th>
+                <th data-i18n="th_bank">Bank</th>
+                <th data-i18n="th_emi">EMI</th>
+                <th data-i18n="th_due_date">Due Date</th>
+                <th data-i18n="th_call_type">Call Type</th>
+                <th data-i18n="th_total_loan">Total Loan</th>
+                <th data-i18n="th_paid_loan">Paid Loan</th>
+                <th data-i18n="th_balance">Balance</th>
+                <th data-i18n="th_status">Status</th>
+                <th data-i18n="th_actions">Actions</th>
               </tr>
             </thead>
             <tbody id="recordsBody"></tbody>
@@ -169,7 +178,7 @@
   </main>
 
   <footer class="app-footer">
-    <p>Rajasthani Voice Pro &copy; 2025 &nbsp;&middot;&nbsp; Powered by gTTS &amp; Twilio</p>
+    <p>Rajasthani Voice Pro &copy; 2025</p>
   </footer>
 
   <script src="/static/js/main.js"></script>
