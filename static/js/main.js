@@ -356,11 +356,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (pollIntervals[idx]) clearInterval(pollIntervals[idx]);
     
     const sid = processedData[idx].call_sid;
+    const phone = processedData[idx].phone || processedData[idx].phone_number;
     if (!sid) return;
 
+    // Ultra-scalable 8-second polling to prevent Plivo API Rate Limits during 500+ batch calls
     pollIntervals[idx] = setInterval(async () => {
       try {
-        const res  = await fetch(`/call-status?sid=${sid}`);
+        const res  = await fetch(`/call-status?sid=${sid}&phone=${encodeURIComponent(phone || '')}`);
         if (!res.ok) return;
         const data = await res.json();
         
@@ -385,25 +387,29 @@ document.addEventListener('DOMContentLoaded', () => {
           // Store status in data for reliable batch resuming
           if (processedData[idx]) processedData[idx].status = data.status;
         }
-      } catch { /* silently ignore poll errors */ }
-    }, 2000);
+      } catch (err) {
+        console.error("Polling error:", err);
+      }
+    }, 8000);
   }
 
   function setBadge(el, status) {
-    el.className = `badge badge-${status.toLowerCase()}`;
-    // Map Plivo raw statuses to beautiful UI text
+    const s = status.toLowerCase();
+    let badgeClass = 'badge-gray';
+    let icon = 'circle';
+    if (s === 'completed' || s === 'answered') { badgeClass = 'badge-green'; icon = 'check-circle'; }
+    else if (s === 'in-progress') { badgeClass = 'badge-indigo'; icon = 'phone-volume fa-beat-fade'; }
+    else if (s === 'failed' || s === 'busy' || s === 'no-answer' || s === 'canceled') { badgeClass = 'badge-red'; icon = 'circle-xmark'; }
+    else if (s === 'ringing' || s === 'queued' || s === 'initiated') { badgeClass = 'badge-yellow'; icon = 'spinner fa-spin'; }
+
     const displayNames = {
-      'queued': 'Queued',
-      'initiated': 'Initiated',
-      'ringing': 'Ringing...',
-      'in-progress': 'In Progress 🔊',
-      'completed': 'Completed ✓',
-      'busy': 'Busy (Cut)',
-      'no-answer': 'No Answer',
-      'canceled': 'Canceled',
-      'failed': 'Failed ❌'
+      'queued': 'Queued', 'initiated': 'Initiated', 'ringing': 'Ringing...',
+      'in-progress': 'In Progress', 'completed': 'Completed', 'busy': 'Busy',
+      'no-answer': 'No Answer', 'canceled': 'Canceled', 'failed': 'Failed'
     };
-    el.textContent = displayNames[status.toLowerCase()] || status;
+    
+    el.className = `badge ${badgeClass}`;
+    el.innerHTML = `<i class="fa-solid fa-${icon}"></i> ${displayNames[s] || status}`;
   }
 
   function createBadge(status) {

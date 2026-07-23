@@ -284,6 +284,10 @@ _BANK_MAP = [
     # (lowercase fragment, Hindi TTS text)
     ("state bank of india",   "स्टेट बैंक ऑफ इंडिया"),
     ("sbi",                   "एस बी आई"),
+    ("au small finance",      "ए यू स्मॉल फाइनेंस बैंक"),
+    ("au small",              "ए यू स्मॉल फाइनेंस बैंक"),
+    ("rajasthan grameen",     "राजस्थान मरुधरा ग्रामीण बैंक"),
+    ("rajasthan gramin",      "राजस्थान ग्रामीण बैंक"),
     ("hdfc",                  "एच डी एफ सी"),
     ("icici",                 "आई सी आई सी आई"),
     ("axis bank",             "एक्सिस बैंक"),
@@ -755,11 +759,19 @@ def call_status_poll():
     # Fallback to querying Plivo API directly.
     if cm:
         import plivo
+        
+        def normalize_status(raw):
+            s = raw.lower()
+            if s in ["completed", "answer", "answered", "hangup"]: return "completed"
+            if s in ["failed", "rejected", "canceled", "cancelled", "no-answer", "busy"]: return "busy"
+            if s in ["ringing", "in-progress", "queued", "initiated"]: return s
+            return s
+            
         try:
             client = plivo.RestClient(cm.account_sid, cm.auth_token)
             # Try to get Call Detail Record (works if call is finished)
             call = client.calls.get(call_sid)
-            status = call.call_state.lower()
+            status = normalize_status(call.call_state)
             if call_sid in JOB_DB:
                 JOB_DB[call_sid]["status"] = status
             return jsonify({"call_sid": call_sid, "status": status})
@@ -768,7 +780,7 @@ def call_status_poll():
                 try:
                     # Try to get live call status (works if call is ringing/in-progress)
                     live = client.calls.live_call_get(call_sid)
-                    status = live.call_status.lower()
+                    status = normalize_status(live.call_status)
                     if call_sid in JOB_DB:
                         JOB_DB[call_sid]["status"] = status
                     return jsonify({"call_sid": call_sid, "status": status})
